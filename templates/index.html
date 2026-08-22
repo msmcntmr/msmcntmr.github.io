@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{PAGE_TITLE}}</title>
+<meta name="description" content="{{DESCRIPTION}}" />
+<link rel="stylesheet" href="/assets/shared.css" />
+<script>
+  window.__SF_DEFAULTS = {{SF_DEFAULTS}};
+</script>
+<script src="/assets/shared.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--fs, 14px);
+    line-height: var(--lh, 1.55);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    letter-spacing: -0.005em;
+  }
+  ::selection{ background: var(--ink); color: var(--panel); }
+  a{ color: inherit; text-decoration: none; }
+
+  /* ---------- layout ---------- */
+  .stage{
+    display: grid;
+    grid-template-columns: var(--col-l, 58fr) var(--col-r, 42fr);
+    min-height: 100vh;
+    transition: grid-template-columns .55s cubic-bezier(.2,.7,.2,1);
+  }
+  .pane{
+    padding: 88px clamp(40px, 6vw, 96px) 88px;
+  }
+  .left{ background: var(--pane-left-bg, var(--bg)); transition: background-color .5s ease; }
+  .right{
+    background: var(--pane-right-bg, var(--panel));
+    position: sticky;
+    top: 0;
+    align-self: start;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: background-color .5s ease;
+  }
+
+  /* ---------- mark ---------- */
+  .mark{
+    display: inline-block;
+    width: 32px; height: 32px;
+    color: var(--ink);
+    margin-bottom: 88px;
+    overflow: visible;
+    transition: color .4s ease;
+  }
+  .mark svg{ display:block; width:100%; height:100%; overflow: visible; }
+
+  /* ---------- identity ---------- */
+  .who{ margin-bottom: 28px; }
+  .who .name{
+    font-weight: 500;
+    font-size: var(--fs, 14px);
+    line-height: 1.4;
+  }
+  .who .role{
+    font-weight: 400;
+    font-size: var(--fs, 14px);
+    color: var(--mute);
+    line-height: 1.4;
+  }
+  .bio{
+    max-width: 36ch;
+    margin: 0 0 120px;
+    color: var(--ink);
+    font-size: var(--fs, 14px);
+    line-height: var(--lh, 1.55);
+    text-wrap: pretty;
+  }
+
+  /* ---------- list ---------- */
+  .group{ margin-bottom: 64px; }
+  .group:last-of-type{ margin-bottom: 0; }
+  .year{
+    font-weight: 500;
+    font-size: var(--fs, 14px);
+    margin: 0 0 18px;
+    letter-spacing: -0.005em;
+  }
+  .entries{ list-style:none; padding:0; margin:0; }
+  .entry{
+    position: relative;
+    display: grid;
+    grid-template-columns: 5em 1fr;
+    column-gap: 1.6em;
+    padding: 6px 0;
+    align-items: baseline;
+    transition: opacity .35s ease;
+  }
+  .entry .date{
+    color: var(--mute);
+    font-size: var(--fs, 14px);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    transition: color .3s ease;
+  }
+  .entry .title{
+    font-size: var(--fs, 14px);
+    color: var(--ink);
+    position: relative;
+    width: max-content;
+    max-width: 100%;
+    transition: font-style .25s ease;
+  }
+
+  /* underline pseudo */
+  .entry .title::after{
+    content: "";
+    position: absolute;
+    left: 0; right: 0;
+    bottom: 1px;
+    height: 1px;
+    background: currentColor;
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform .45s cubic-bezier(.2,.7,.2,1);
+    opacity: 0;
+  }
+  /* arrow pseudo */
+  .entry .title::before{
+    content: "→";
+    position: absolute;
+    left: 100%;
+    top: 0;
+    margin-left: 0.5em;
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: opacity .3s ease, transform .4s cubic-bezier(.2,.7,.2,1);
+    color: currentColor;
+  }
+  /* marker dot in the gutter */
+  .entry::before{
+    content: "";
+    position: absolute;
+    left: -1.2em;
+    top: 0.55em;
+    width: 0.5em; height: 0.5em;
+    background: currentColor;
+    opacity: 0;
+    transform: scale(0.6);
+    transition: opacity .25s ease, transform .35s cubic-bezier(.2,.7,.2,1);
+  }
+
+  /* ---- hover modes ---- */
+  body[data-hover="underline"] .entry .title::after{ opacity: 1; }
+  body[data-hover="underline"] .entry:hover .title::after{ transform: scaleX(1); }
+
+  body[data-hover="arrow"] .entry:hover .title::before{
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  body[data-hover="italic"] .entry:hover .title{
+    font-style: italic;
+  }
+
+  body[data-hover="marker"] .entry:hover::before{
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  /* common across modes: dim the rest, brighten the active date */
+  .entries:hover .entry:not(:hover){ opacity: .4; }
+  .entry:hover .date{ color: var(--ink); }
+
+  /* ---------- right pane ---------- */
+  .about{
+    max-width: 38ch;
+    color: var(--ink);
+    font-size: var(--fs, 14px);
+    line-height: var(--lh, 1.55);
+  }
+  .about p{ margin: 0 0 16px; }
+  .about p:last-child{ margin-bottom: 0; }
+  .about .email{
+    display: inline-block;
+    margin-top: 28px;
+    position: relative;
+  }
+  .about .email::after{
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 1px;
+    height: 1px;
+    background: currentColor;
+    opacity: .35;
+    transition: opacity .35s ease;
+  }
+  .about .email:hover::after{ opacity: 1; }
+
+  /* ---------- scroll reveal ---------- */
+  .rise{
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1);
+    transition-delay: var(--d, 0ms);
+  }
+  .rise.in{ opacity: 1; transform: none; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 860px){
+    .stage{ grid-template-columns: 1fr; }
+    .pane{ padding: 56px 28px; }
+    .left{ order: 2; }
+    .right{
+      order: 1;
+      position: static;
+      min-height: auto;
+      padding-bottom: 56px;
+    }
+    .right .top{ margin-bottom: 0; }
+    .about{ margin-top: 88px; }
+    .bio{ margin-bottom: 72px; }
+    .mark{ margin-bottom: 48px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation: none !important; transition: none !important; }
+    .rise{ opacity:1; transform:none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ====================== LEFT ====================== -->
+  <section class="pane left">
+    <a href="/" class="mark" data-mark aria-label="vuotogeometrico"></a>
+
+    <div class="lists">
+{{GROUPS}}
+    </div>
+  </section>
+
+  <!-- ====================== RIGHT ====================== -->
+  <aside class="pane right">
+    <div class="top">
+      <div class="who">
+        <div class="name">{{SITE_NAME}}</div>
+        <div class="role">{{ROLE}}</div>
+      </div>
+    </div>
+
+    <div class="about">
+{{ABOUT}}
+      <a class="email" href="mailto:{{EMAIL}}">{{EMAIL}}</a>
+    </div>
+
+    <div class="pane-tools">
+      <div class="text-size" data-text-size aria-label="Text size">
+        <button type="button" data-size="16" aria-label="Small">A</button>
+        <button type="button" data-size="18" aria-label="Medium">A</button>
+        <button type="button" data-size="20" aria-label="Large">A</button>
+      </div>
+      <span class="sep" aria-hidden="true"></span>
+      <button type="button" class="panel-swap" data-panel-swap aria-label="Swap panel backgrounds" title="Swap panel backgrounds">
+        <svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true">
+          <rect class="pl-left"  x="0.5" y="0.5" width="10" height="13" stroke-width="1" />
+          <rect class="pl-right" x="11.5" y="0.5" width="10" height="13" stroke-width="1" />
+        </svg>
+      </button>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+  // gentle scroll reveal for the year groups
+  (() => {
+    const els = document.querySelectorAll('.rise');
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting){
+          e.target.classList.add('in');
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+    els.forEach(el => io.observe(el));
+  })();
+</script>
+
+</body>
+</html>

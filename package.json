@@ -1,0 +1,20 @@
+{
+  "name": "vuotogeometrico-site",
+  "private": true,
+  "type": "module",
+  "description": "Static site generator + shell for vuotogeometrico (msmcntmr.github.io)",
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "sharp": "^0.34.3",
+    "unified": "^11.0.5",
+    "yaml": "^2.8.0"
+  },
+  "allowScripts": {
+    "sharp@0.34.5": true
+  }
+}

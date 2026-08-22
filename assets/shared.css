@@ -9,10 +9,36 @@ html, body{ overflow-x: clip; max-width: 100%; }
 
 /* on narrow viewports, ch-based widths can exceed the viewport at larger
    text sizes — cap every text-column rule to its parent's width. */
-@media (max-width: 860px){
-  .bio, .about, .body, .ttl, figure.photo figcaption{
+@media (max-width: 1024px){
+  .bio, .about, .body, .ttl, figure.photo figcaption, .modal-meta .caption, .modal-meta .desc{
     max-width: 100% !important;
   }
+  /* ---- stacked (phone / tablet) reading order ----
+     .right stops being a pane so its parts can be ordered independently:
+     identity header first, then the page content, then the about + tools. */
+  body .stage{ display: flex !important; flex-direction: column; }
+  body .stage > .right{ display: contents !important; }
+  .left{ order: 2; }
+  .right .top{
+    order: 1;
+    padding: 32px clamp(20px, 5vw, 44px) 24px;
+    background: var(--pane-right-bg, var(--panel));
+    border-bottom: 1px solid var(--line);
+  }
+  .right .about{
+    order: 3;
+    margin: 0 !important;
+    padding: 40px clamp(20px, 5vw, 44px);
+    background: var(--pane-right-bg, var(--panel));
+    border-top: 1px solid var(--line);
+  }
+  .right .pane-tools{
+    order: 4;
+    padding: 0 clamp(20px, 5vw, 44px) 40px;
+    background: var(--pane-right-bg, var(--panel));
+    justify-content: flex-end;
+  }
+  .right .top .mark{ margin-bottom: 20px; }
 }
 
 /* ---------------- page transitions ---------------- */
@@ -314,10 +340,11 @@ body.sf-leaving{
 body[data-panels="swapped"] .panel-swap .pl-left { fill: var(--panel); }
 body[data-panels="swapped"] .panel-swap .pl-right{ fill: var(--bg); }
 
-@media (max-width: 860px){
+@media (max-width: 1024px){
   .pane-tools{
     position: static;
-    margin-bottom: 24px;
-    align-self: flex-end;
+    margin: 0;
+    display: flex;
   }
+  .text-size button{ padding: 10px 10px 8px; }
 }

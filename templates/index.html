@@ -30,7 +30,7 @@
   /* ---------- layout ---------- */
   .stage{
     display: grid;
-    grid-template-columns: var(--col-l, 58fr) var(--col-r, 42fr);
+    grid-template-columns: minmax(0, var(--col-l, 58fr)) minmax(340px, var(--col-r, 42fr));
     min-height: 100vh;
     transition: grid-template-columns .55s cubic-bezier(.2,.7,.2,1);
   }
@@ -213,20 +213,17 @@
   .rise.in{ opacity: 1; transform: none; }
 
   /* ---------- responsive ---------- */
-  @media (max-width: 860px){
-    .stage{ grid-template-columns: 1fr; }
-    .pane{ padding: 56px 28px; }
-    .left{ order: 2; }
-    .right{
-      order: 1;
-      position: static;
-      min-height: auto;
-      padding-bottom: 56px;
-    }
-    .right .top{ margin-bottom: 0; }
-    .about{ margin-top: 88px; }
-    .bio{ margin-bottom: 72px; }
-    .mark{ margin-bottom: 48px; }
+  .right .top .mark{ display: none; }
+  @media (max-width: 1024px){
+    .pane{ padding: 40px clamp(20px, 5vw, 44px) 56px; }
+    .left > .mark{ display: none; }
+    .right .top .mark{ display: inline-block; }
+    .bio{ margin-bottom: 56px; }
+    .group{ margin-bottom: 48px; }
+    .entry{ grid-template-columns: 4.4em 1fr; column-gap: 1.1em; padding: 8px 0; }
+    .entry .title{ width: auto; overflow-wrap: break-word; }
+    .entry .title::before{ display: none; }
+    .entries:hover .entry:not(:hover){ opacity: 1; }
   }
 
   @media (prefers-reduced-motion: reduce){
@@ -251,6 +248,7 @@
   <!-- ====================== RIGHT ====================== -->
   <aside class="pane right">
     <div class="top">
+      <a href="/" class="mark" data-mark aria-label="vuotogeometrico"></a>
       <div class="who">
         <div class="name">{{SITE_NAME}}</div>
         <div class="role">{{ROLE}}</div>

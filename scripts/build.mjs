@@ -187,9 +187,9 @@ function renderInlineNodes(nodes, ctx){
         break;
       }
       case 'image':
-        // plain markdown images: treated as a bare figure with no metadata
-        segs.push({ text: false, s: '' });
-        ctx.plainImages.push(node);
+        // an image inside running text renders inline; image-only
+        // paragraphs are handled upstream as static figures
+        segs.push({ text: false, s: `<img src="${esc(node.url)}" alt="${esc(node.alt || '')}" loading="lazy" />` });
         break;
       case 'footnoteReference': {
         const n = ctx.footnoteNumber(node.identifier);
@@ -315,10 +315,9 @@ function parseArticle(dir, slugSet){
   return { dir, folder, slug, date, title: String(fm.title), draft: !!fm.draft, description: fm.description || '', tree, figures };
 }
 
-function renderArticleBody(article, slugSet){
+async function renderArticleBody(article, slugSet){
   const ctx = {
     slugSet,
-    plainImages: [],
     fnOrder: [],
     footnoteNumber(id){
       let i = this.fnOrder.indexOf(id);
@@ -358,13 +357,19 @@ function renderArticleBody(article, slugSet){
     }
   };
 
-  const emitFigure = (idx) => {
-    const it = { ...(article.figures[idx] || {}) };
+  const emitFigure = async (meta) => {
+    const it = { ...meta };
+    const zoomable = it.zoom !== false && it.modal !== false;
+    delete it.zoom; delete it.modal;
     // normalize + rewrite src
+    let localRel = null;
     if (it.src && !/^https?:/.test(it.src)){
-      const rel = it.src.replace(/^\.\//, '');
-      it.src = `/a/${article.slug}/${rel}`;
-      it._localRel = rel;
+      localRel = it.src.replace(/^\.\//, '');
+      it.src = `/a/${article.slug}/${localRel}`;
+    }
+    if (!it.ratio && localRel){
+      const r = await imageRatio(article, localRel);
+      if (r) it.ratio = r;
     }
     if (it.tech && typeof it.tech === 'object'){
       it.tech = Object.fromEntries(Object.entries(it.tech).map(([k, v]) => [k, String(v)]));
@@ -372,23 +377,29 @@ function renderArticleBody(article, slugSet){
     if (typeof it.description === 'string' && it.description.includes('\n\n')){
       it.description = it.description.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
     }
-    const n = figdata.length;
-    figdata.push(it);
 
     const ratio = it.ratio ? ` style="--ratio:${esc(String(it.ratio))}"` : '';
     const toneStyle = it.tone ? ` style="--tone:${toneColorCss(it.tone)}"` : '';
     let inner;
     if (it.src){
-      inner = `<div class="ph"${toneStyle}><img src="${esc(it.src)}" alt="${esc(it.title || it.caption || '')}" loading="lazy" /></div>`;
+      inner = `<div class="ph"${toneStyle}><img src="${esc(it.src)}" alt="${esc(it.alt || it.title || it.caption || '')}" loading="lazy" /></div>`;
     } else {
       const lab = escCode((it.title || 'photograph').slice(0, 32));
       inner = `<div class="ph placeholder"${toneStyle}><span class="ph-label">${lab}</span></div>`;
     }
+    delete it.alt;
     let cap = '';
     if (it.title || it.caption){
-      cap = `<figcaption>${it.title ? `<span class="cap-title">${esc(it.title)}</span>` : ''}${it.caption ? `<span class="cap-caption">${esc(it.caption)}</span>` : ''}<span class="cap-zoom">View ↗</span></figcaption>`;
+      const zoomHint = zoomable ? '<span class="cap-zoom">View ↗</span>' : '';
+      cap = `<figcaption>${it.title ? `<span class="cap-title">${esc(it.title)}</span>` : ''}${it.caption ? `<span class="cap-caption">${esc(it.caption)}</span>` : ''}${zoomHint}</figcaption>`;
     }
-    parts.push(`<figure class="photo" data-fig="${n}"${ratio}>${inner}${cap}</figure>`);
+    if (zoomable){
+      const n = figdata.length;
+      figdata.push(it);
+      parts.push(`<figure class="photo" data-fig="${n}"${ratio}>${inner}${cap}</figure>`);
+    } else {
+      parts.push(`<figure class="photo static"${ratio}>${inner}${cap}</figure>`);
+    }
   };
 
   for (const node of flow){
@@ -397,7 +408,15 @@ function renderArticleBody(article, slugSet){
         const soleText = node.children.length === 1 && node.children[0].type === 'text'
           ? node.children[0].value.trim() : null;
         const figMatch = soleText && soleText.match(/^%%FIG(\d+)%%$/);
-        if (figMatch){ emitFigure(+figMatch[1]); break; }
+        if (figMatch){ await emitFigure(article.figures[+figMatch[1]] || {}); break; }
+        // a paragraph that is only image(s) → static figure(s), no modal
+        const nonWs = node.children.filter(c => !(c.type === 'text' && !c.value.trim()));
+        if (nonWs.length && nonWs.every(c => c.type === 'image')){
+          for (const img of nonWs){
+            await emitFigure({ src: img.url, title: img.title || '', caption: img.alt || '', alt: img.alt || '', zoom: false });
+          }
+          break;
+        }
         const segs = renderInlineNodes(node.children, ctx);
         if (!firstParagraphText){
           firstParagraphText = segs.filter(s => s.text).map(s => s.s).join(' ').replace(/\s+/g, ' ').trim();
@@ -530,16 +549,7 @@ if (dupes.length) throw new Error('duplicate slugs: ' + dupes.join(', '));
 
 for (let i = 0; i < articles.length; i++){
   const a = articles[i];
-  const { html, figdata, firstParagraphText } = renderArticleBody(a, slugSet);
-
-  // fill in missing image ratios from real dimensions
-  for (const it of figdata){
-    if (!it.ratio && it._localRel){
-      const r = await imageRatio(a, it._localRel);
-      if (r) it.ratio = r; // ratio in figdata is informational; figure style already emitted
-    }
-    delete it._localRel;
-  }
+  const { html, figdata, firstParagraphText } = await renderArticleBody(a, slugSet);
 
   const prev = i > 0 ? articles[i - 1] : null;          // newer
   const next = i < articles.length - 1 ? articles[i + 1] : null; // older

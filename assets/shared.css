@@ -23,14 +23,12 @@ html, body{ overflow-x: clip; max-width: 100%; }
     order: 1;
     padding: 32px clamp(20px, 5vw, 44px) 24px;
     background: var(--pane-right-bg, var(--panel));
-    border-bottom: 1px solid var(--line);
   }
   .right .about{
     order: 3;
     margin: 0 !important;
     padding: 40px clamp(20px, 5vw, 44px);
     background: var(--pane-right-bg, var(--panel));
-    border-top: 1px solid var(--line);
   }
   .right .pane-tools{
     order: 4;
@@ -348,3 +346,9 @@ body[data-panels="swapped"] .panel-swap .pl-right{ fill: var(--bg); }
   }
   .text-size button{ padding: 10px 10px 8px; }
 }
+
+/* ---------------- non-zoomable figures ----------------
+   `zoom: false` in an :::image block, or plain markdown images —
+   rendered without modal wiring. */
+figure.photo.static{ cursor: default; }
+figure.photo.static:hover .ph{ transform: none; }

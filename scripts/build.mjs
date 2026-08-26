@@ -16,6 +16,7 @@ import YAML from 'yaml';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
+import os from 'node:os';
 
 const ROOT = path.dirname(path.dirname(url.fileURLToPath(import.meta.url)));
 
@@ -40,6 +41,16 @@ catch { console.warn('sharp not installed — images copied without resize/EXIF-
 
 const IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.avif', '.tiff']);
 const MAX_EDGE = 2200;
+const WIDTH_LADDER = [640, 1024, 1600, 2200];
+
+async function mapLimit(items, limit, fn){
+  const ret = new Array(items.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length){ const idx = i++; ret[idx] = await fn(items[idx], idx); }
+  }));
+  return ret;
+}
 
 /* ---------------- site config ---------------- */
 const SITE_DEFAULTS = {
@@ -363,13 +374,19 @@ async function renderArticleBody(article, slugSet){
     delete it.zoom; delete it.modal;
     // normalize + rewrite src
     let localRel = null;
+    let plan = null;
     if (it.src && !/^https?:/.test(it.src)){
       localRel = it.src.replace(/^\.\//, '');
-      it.src = `/a/${article.slug}/${localRel}`;
+      plan = await planImageVariants(article, localRel);
+      // fallback file may have a different extension than the source
+      // (e.g. a PNG re-encoded to JPEG) — reflect that in the served path
+      const localRelForSrc = plan
+        ? localRel.replace(/\.[^./]+$/, `.${plan.fallbackExt}`)
+        : localRel;
+      it.src = `/a/${article.slug}/${localRelForSrc}`;
     }
-    if (!it.ratio && localRel){
-      const r = await imageRatio(article, localRel);
-      if (r) it.ratio = r;
+    if (!it.ratio && plan){
+      it.ratio = plan.ratio;
     }
     if (it.tech && typeof it.tech === 'object'){
       it.tech = Object.fromEntries(Object.entries(it.tech).map(([k, v]) => [k, String(v)]));
@@ -378,10 +395,29 @@ async function renderArticleBody(article, slugSet){
       it.description = it.description.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
     }
 
+    if (plan){
+      const base = it.src.replace(/\.[^./]+$/, '');
+      it.img = {
+        widths: plan.widths,
+        avif: `${base}@{w}w.avif`,
+        webp: `${base}@{w}w.webp`,
+        fallback: `${base}@{w}w.${plan.fallbackExt}`
+      };
+    }
+
     const ratio = it.ratio ? ` style="--ratio:${esc(String(it.ratio))}"` : '';
     const toneStyle = it.tone ? ` style="--tone:${toneColorCss(it.tone)}"` : '';
     let inner;
-    if (it.src){
+    if (it.src && it.img){
+      const alt = esc(it.alt || it.title || it.caption || '');
+      const srcset = (tmpl) => esc(it.img.widths.map(w => `${tmpl.replace('{w}', w)} ${w}w`).join(', '));
+      const sizes = '(max-width: 1024px) 100vw, 60vw';
+      inner = `<div class="ph"${toneStyle}><picture>` +
+        `<source type="image/avif" srcset="${srcset(it.img.avif)}" sizes="${sizes}">` +
+        `<source type="image/webp" srcset="${srcset(it.img.webp)}" sizes="${sizes}">` +
+        `<img src="${esc(it.src)}" srcset="${srcset(it.img.fallback)}" sizes="${sizes}" alt="${alt}" loading="lazy" />` +
+        `</picture></div>`;
+    } else if (it.src){
       inner = `<div class="ph"${toneStyle}><img src="${esc(it.src)}" alt="${esc(it.alt || it.title || it.caption || '')}" loading="lazy" /></div>`;
     } else {
       const lab = escCode((it.title || 'photograph').slice(0, 32));
@@ -470,6 +506,41 @@ function toneColorCss(tone){
 /* ====================================================================
    assets
    ==================================================================== */
+const FORMAT_EXT = { avif: 'avif', webp: 'webp', jpeg: 'jpg', png: 'png' };
+const ENCODE_OPTS = {
+  avif: { quality: 50, effort: 4 },
+  webp: { quality: 75 },
+  jpeg: { quality: 82, mozjpeg: true },
+  png: {}
+};
+
+// per-source-image plan of which AVIF/WebP/fallback width-tiers to generate.
+// Pure metadata computation (no encoding) so both emitFigure (HTML/figdata)
+// and copyArticleAssets (actual file writes) agree on the same naming
+// scheme without re-reading the source file twice.
+const variantPlanCache = new Map();
+async function planImageVariants(article, rel){
+  if (!sharp) return null;
+  const key = `${article.dir}::${rel}`;
+  if (variantPlanCache.has(key)) return variantPlanCache.get(key);
+  const plan = await (async () => {
+    try {
+      const m = await sharp(path.join(article.dir, rel)).metadata();
+      if (!m.width || !m.height) return null;
+      const [w, h] = (m.orientation || 1) >= 5 ? [m.height, m.width] : [m.width, m.height];
+      const ratio = `${w}/${h}`;
+      const natWidth = Math.min(w, MAX_EDGE);
+      const widths = [...new Set([...WIDTH_LADDER.filter(x => x <= natWidth), natWidth])].sort((a, b) => a - b);
+      const ext = path.extname(rel).toLowerCase();
+      const fallbackFormat = ext === '.avif' ? 'avif' : ext === '.webp' ? 'webp' : (m.hasAlpha ? 'png' : 'jpeg');
+      const formats = [...new Set(['avif', 'webp', fallbackFormat])];
+      return { ratio, widths, fallbackFormat, fallbackExt: FORMAT_EXT[fallbackFormat], formats };
+    } catch { return null; }
+  })();
+  variantPlanCache.set(key, plan);
+  return plan;
+}
+
 async function copyArticleAssets(article, outDir){
   const walk = (dir, rel = '') => {
     let files = [];
@@ -481,31 +552,45 @@ async function copyArticleAssets(article, outDir){
     }
     return files;
   };
-  for (const rel of walk(article.dir)){
+  const files = walk(article.dir);
+  const limit = Math.min(4, os.cpus().length || 4);
+  await mapLimit(files, limit, async (rel) => {
     const src = path.join(article.dir, rel);
-    const dst = path.join(outDir, rel);
-    fs.mkdirSync(path.dirname(dst), { recursive: true });
     const ext = path.extname(rel).toLowerCase();
-    if (sharp && IMG_EXT.has(ext)){
-      // strip EXIF/GPS (sharp drops metadata by default), honor orientation, cap size
+    if (!(sharp && IMG_EXT.has(ext))){
+      const dst = path.join(outDir, rel);
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.copyFileSync(src, dst);
+      return;
+    }
+    const plan = await planImageVariants(article, rel);
+    const outDirPath = path.join(outDir, path.dirname(rel));
+    fs.mkdirSync(outDirPath, { recursive: true });
+    if (!plan){
+      // metadata read failed for some reason — fall back to plain resize/copy
       await sharp(src)
         .rotate()
         .resize(MAX_EDGE, MAX_EDGE, { fit: 'inside', withoutEnlargement: true })
-        .toFile(dst);
-    } else {
-      fs.copyFileSync(src, dst);
+        .toFile(path.join(outDir, rel));
+      return;
     }
-  }
-}
-
-async function imageRatio(article, rel){
-  if (!sharp) return null;
-  try {
-    const m = await sharp(path.join(article.dir, rel)).metadata();
-    if (!m.width || !m.height) return null;
-    const [w, h] = (m.orientation || 1) >= 5 ? [m.height, m.width] : [m.width, m.height];
-    return `${w}/${h}`;
-  } catch { return null; }
+    const baseName = path.basename(rel, ext);
+    // strip EXIF/GPS (sharp drops metadata by default), honor orientation, cap size
+    await sharp(src)
+      .rotate()
+      .resize(MAX_EDGE, MAX_EDGE, { fit: 'inside', withoutEnlargement: true })
+      .toFormat(plan.fallbackFormat, ENCODE_OPTS[plan.fallbackFormat])
+      .toFile(path.join(outDirPath, `${baseName}.${plan.fallbackExt}`));
+    for (const format of plan.formats){
+      for (const width of plan.widths){
+        await sharp(src)
+          .rotate()
+          .resize(width, width, { fit: 'inside', withoutEnlargement: true })
+          .toFormat(format, ENCODE_OPTS[format])
+          .toFile(path.join(outDirPath, `${baseName}@${width}w.${FORMAT_EXT[format]}`));
+      }
+    }
+  });
 }
 
 /* ====================================================================

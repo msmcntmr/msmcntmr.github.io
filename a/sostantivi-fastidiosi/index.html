@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Writing code, slowly — vuotogeometrico</title>
-<meta name="description" content="I have been writing software since 1998, and for most of those years I have been writing it in a hurry. There was always a deadline, or a colleague waiting, or — more honestly — a feeling that the next thing was the t…" />
+<title>Sostantivi fastidiosi — vuotogeometrico</title>
+<meta name="description" content="Alcune parole mi danno proprio fastidio, non dovrebbero nemmeno esistere. Un esempio è il termine , in particolare nel suo utilizzo come sostantivo più che come aggettivo. Non sono io, che non bevo l&#39;alcol, a dover ut…" />
 <link rel="stylesheet" href="/assets/shared.css" />
 <script>
   window.__SF_DEFAULTS = {"typeface":"geist","titleface":"ebgaramond","textSize":18,"leading":1.55,"columnRatio":57,"bodyWidth":72,"palette":"cool-gray","scrim":"light","hover":"underline","panels":"normal"};
@@ -604,79 +604,19 @@
   <section class="pane left">
     <div class="fade">
       <a class="back" href="/"><span class="arr">←</span><span>vuotogeometrico</span></a>
-      <div class="meta" id="meta">May 24, 2026</div>
-      <h1 class="ttl" id="ttl">Writing code, slowly</h1>
+      <div class="meta" id="meta">August 27, 2026</div>
+      <h1 class="ttl" id="ttl">Sostantivi fastidiosi</h1>
       <article class="body" id="body">
-<p><span class="sent">I have been writing software since 1998, and for most of those years I have been writing it in a hurry.</span><span class="sent"> There was always a deadline, or a colleague waiting, or — more honestly — a feeling that the next thing was the thing that mattered, and so the current line had to be hurried past.</span><span class="sent"> Lately I have been trying the opposite.</span><span class="sent"> I treat a function the way I treat a paragraph: I leave it for a day, and read it the next morning before deciding it is finished.</span></p>
-<p><span class="sent">The clearest sign of something written too quickly, for me, is that you cannot read it aloud.</span><span class="sent"> Good code, like good prose, has a cadence — the names rhyme, the lines breathe, and the reader&#39;s eye does not have to climb a fence to reach the meaning.</span><span class="sent"> Here is a small server I wrote on a Sunday morning.</span><span class="sent" data-fns="1"> It does exactly one thing, and the one thing is small<sup class="fn-ref"><a href="#fn-1" data-fn="1">1</a></sup>.</span></p>
-<aside class="sidenote" id="fn-1" data-fn="1"><span class="num">1</span>Smallness, for me, is not a constraint but a relief. A function I can hold in my head is a function I can fix at six o&#39;clock on a Friday.</aside>
-<figure class="ide" data-lang="go">
-<div class="ide-head"><span class="dot"></span><span class="file">noticeboard.go</span><span class="lang">Go</span></div>
-<div class="ide-body">
-<div class="ln"><span class="num">1</span><span class="src"><span class="t-k">package</span> main</span></div>
-<div class="ln"><span class="num">2</span><span class="src">​</span></div>
-<div class="ln"><span class="num">3</span><span class="src"><span class="t-k">import</span> (</span></div>
-<div class="ln"><span class="num">4</span><span class="src">    <span class="t-s">"fmt"</span></span></div>
-<div class="ln"><span class="num">5</span><span class="src">    <span class="t-s">"net/http"</span></span></div>
-<div class="ln"><span class="num">6</span><span class="src">    <span class="t-s">"time"</span></span></div>
-<div class="ln"><span class="num">7</span><span class="src">)</span></div>
-<div class="ln"><span class="num">8</span><span class="src">​</span></div>
-<div class="ln"><span class="num">9</span><span class="src"><span class="t-c">// noticeboard is a small server that tells the time, and not much else.</span></span></div>
-<div class="ln"><span class="num">10</span><span class="src"><span class="t-k">func</span> noticeboard(w http.ResponseWriter, r *http.Request) {</span></div>
-<div class="ln"><span class="num">11</span><span class="src">    now := time.Now()</span></div>
-<div class="ln"><span class="num">12</span><span class="src">    fmt.Fprintf(w, <span class="t-s">"It is %s.\n"</span>, now.Format(<span class="t-s">"15:04"</span>))</span></div>
-<div class="ln"><span class="num">13</span><span class="src">}</span></div>
-<div class="ln"><span class="num">14</span><span class="src">​</span></div>
-<div class="ln"><span class="num">15</span><span class="src"><span class="t-k">func</span> main() {</span></div>
-<div class="ln"><span class="num">16</span><span class="src">    http.HandleFunc(<span class="t-s">"/"</span>, noticeboard)</span></div>
-<div class="ln"><span class="num">17</span><span class="src">    http.ListenAndServe(<span class="t-s">":8080"</span>, <span class="t-k">nil</span>)</span></div>
-<div class="ln"><span class="num">18</span><span class="src">}</span></div>
-</div>
-</figure>
-<p><span class="sent">I keep a folder of legacy projects I still maintain for old friends and old companies — small PHP applications, mostly, of the kind that ran a corner of the internet in 2009 and continue, quietly, to run it now.</span><span class="sent"> There is a particular pleasure in returning to them.</span><span class="sent"> The functions are short.</span><span class="sent"> The names are dull.</span><span class="sent" data-fns="2"> Nothing surprises you, which is the point<sup class="fn-ref"><a href="#fn-2" data-fn="2">2</a></sup>.</span></p>
-<aside class="sidenote" id="fn-2" data-fn="2"><span class="num">2</span>The cliché says boring code is good code. I would put it more gently: code that does not call attention to itself is leaving room for the problem to.</aside>
-<figure class="ide" data-lang="php">
-<div class="ide-head"><span class="dot"></span><span class="file">format_date.php</span><span class="lang">PHP</span></div>
-<div class="ide-body">
-<div class="ln"><span class="num">1</span><span class="src">&lt;?php</span></div>
-<div class="ln"><span class="num">2</span><span class="src">​</span></div>
-<div class="ln"><span class="num">3</span><span class="src"><span class="t-c">// Format a date the way the old paper would have done it.</span></span></div>
-<div class="ln"><span class="num">4</span><span class="src"><span class="t-k">function</span> formatDate(<span class="t-t">DateTimeInterface</span> <span class="t-v">$d</span>): <span class="t-t">string</span></span></div>
-<div class="ln"><span class="num">5</span><span class="src">{</span></div>
-<div class="ln"><span class="num">6</span><span class="src">    <span class="t-v">$months</span> = [</span></div>
-<div class="ln"><span class="num">7</span><span class="src">        <span class="t-s">'January'</span>, <span class="t-s">'February'</span>, <span class="t-s">'March'</span>, <span class="t-s">'April'</span>,</span></div>
-<div class="ln"><span class="num">8</span><span class="src">        <span class="t-s">'May'</span>, <span class="t-s">'June'</span>, <span class="t-s">'July'</span>, <span class="t-s">'August'</span>,</span></div>
-<div class="ln"><span class="num">9</span><span class="src">        <span class="t-s">'September'</span>, <span class="t-s">'October'</span>, <span class="t-s">'November'</span>, <span class="t-s">'December'</span>,</span></div>
-<div class="ln"><span class="num">10</span><span class="src">    ];</span></div>
-<div class="ln"><span class="num">11</span><span class="src">    <span class="t-v">$month</span> = <span class="t-v">$months</span>[(<span class="t-t">int</span>) <span class="t-v">$d</span>-&gt;format(<span class="t-s">'n'</span>) - <span class="t-n">1</span>];</span></div>
-<div class="ln"><span class="num">12</span><span class="src">    <span class="t-k">return</span> <span class="t-v">$month</span> . <span class="t-s">' '</span> . <span class="t-v">$d</span>-&gt;format(<span class="t-s">'j'</span>) . <span class="t-s">', '</span> . <span class="t-v">$d</span>-&gt;format(<span class="t-s">'Y'</span>);</span></div>
-<div class="ln"><span class="num">13</span><span class="src">}</span></div>
-<div class="ln"><span class="num">14</span><span class="src">​</span></div>
-<div class="ln"><span class="num">15</span><span class="src"><span class="t-k">echo</span> formatDate(<span class="t-k">new</span> <span class="t-t">DateTime</span>(<span class="t-s">'today'</span>));</span></div>
-</div>
-</figure>
-<p><span class="sent">The third thing I write every day is the journal — not in any application, but in a folder of plain text files.</span><span class="sent"> Three lines, sometimes four.</span><span class="sent"> The file for the day I cannot remember anything has the date and nothing else, and that, I have come to think, is also a record.</span></p>
-<figure class="ide" data-lang="markdown">
-<div class="ide-head"><span class="dot"></span><span class="file">2026-05-23.md</span><span class="lang">Markdown</span></div>
-<div class="ide-body">
-<div class="ln"><span class="num">1</span><span class="src"><span class="t-c">---</span></span></div>
-<div class="ln"><span class="num">2</span><span class="src"><span class="t-v">date</span>: 2026-05-23</span></div>
-<div class="ln"><span class="num">3</span><span class="src"><span class="t-v">weather</span>: overcast, briefly</span></div>
-<div class="ln"><span class="num">4</span><span class="src"><span class="t-v">notebook</span>: 14 / 192</span></div>
-<div class="ln"><span class="num">5</span><span class="src"><span class="t-c">---</span></span></div>
-<div class="ln"><span class="num">6</span><span class="src">​</span></div>
-<div class="ln"><span class="num">7</span><span class="src"><span class="t-k"># Three things I noticed today</span></span></div>
-<div class="ln"><span class="num">8</span><span class="src">​</span></div>
-<div class="ln"><span class="num">9</span><span class="src"><span class="t-k">-</span> The bakery on Rua da Boavista raising its shutters at 06:11.</span></div>
-<div class="ln"><span class="num">10</span><span class="src"><span class="t-k">-</span> A cat asleep on the wall opposite, in the same patch of sun as yesterday.</span></div>
-<div class="ln"><span class="num">11</span><span class="src"><span class="t-k">-</span> Three lines in the green notebook, none of them keepers.</span></div>
-<div class="ln"><span class="num">12</span><span class="src">​</span></div>
-<div class="ln"><span class="num">13</span><span class="src">See also: <span class="t-v">[the long afternoon]</span><span class="t-s">(../2026-02-08-long-afternoon.md)</span>.</span></div>
-</div>
-</figure>
-<p><span class="sent">I have come to think that writing code slowly is just writing code with the radio off.</span><span class="sent"> There is no method.</span><span class="sent"> You sit at the desk.</span><span class="sent"> You read the line above.</span><span class="sent"> You decide whether the next one is needed.</span><span class="sent"> Most of the time, it isn&#39;t.</span></p>
+<p><span class="sent">Alcune parole mi danno proprio fastidio, non dovrebbero nemmeno esistere.</span><span class="sent">
+Un esempio è il termine <code>astemio</code>, in particolare nel suo utilizzo come sostantivo più che come aggettivo.</span><span class="sent"> Non sono io, che non bevo l&#39;alcol, a dover utilizzare un termine che mi identifica, mi etichetta, come colui il quale si preclude — per qualsiasi motivo esso sia — all&#39;assunzione di una sostanza.</span></p>
+<p><span class="sent">È una parola <em>marcata</em>, cioè descrive chi devia dalla presunta norma sociale; la norma implicita è: <em>gli adulti bevono</em> —  e non solo loro — chi non lo fa deve avere un’etichetta.</span><span class="sent"> Non è casuale il fatto che derivi dal latino <em>abstemius</em>, <em>che si astiene dal vino</em>, a prova del fatto che ha una storia antica alle spalle.</span></p>
+<p><span class="sent">Esiste per caso un corrispettivo per identificare chi non fa uso di stupefacenti?</span><span class="sent"> A memoria direi di no.</span><span class="sent"> Abbiamo il caso opposto, tossicodipendente è anch&#39;esso un sostantivo oltre che un aggettivo.</span><span class="sent"> Tuttavia, per questo caso, la riduzione della persona a una condizione, spesso con stigma, finisce giustamente sull&#39;eccezione, sull&#39;individuo che tiene un comportamento anomalo.</span></p>
+<p><span class="sent">Il consumo di alcol è così normalizzato nella nostra società che il non-consumo necessita di una etichetta.</span><span class="sent">
+Questo è il mio fastidio principale con questo termine, tuttavia non è da meno il fatto che, spesso, affermare di essere astemi suoni come una condizione da spiegare o, addirittura, difendere.</span></p>
+<p><span class="sent">Per questi motivi cerco, quanto più possibile, di non utilizzarla.</span><span class="sent">
+Avevo altri esempi in mente nel tempo, ma ovviamente il mio cervello se li è già lasciati sfuggire.</span><span class="sent"> Forse <em>disoccupato</em>?</span></p>
       </article>
-      <nav class="pager" id="pager"><a class="prev" href="/a/sostantivi-fastidiosi/"><span class="label">← Newer</span><span>Sostantivi fastidiosi</span></a><a class="next" href="/a/walking-the-same-street/"><span class="label">Older →</span><span>On walking the same street</span></a></nav>
+      <nav class="pager" id="pager"><span class="prev empty"></span><a class="next" href="/a/writing-code-slowly/"><span class="label">Older →</span><span>Writing code, slowly</span></a></nav>
     </div>
   </section>
 

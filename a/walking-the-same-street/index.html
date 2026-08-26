@@ -190,6 +190,7 @@
     transition: transform .6s cubic-bezier(.2,.7,.2,1);
   }
   figure.photo:hover .ph{ transform: translateY(-2px); }
+  figure.photo .ph picture{ display: contents; }
   figure.photo .ph img{
     display: block; width: 100%; height: 100%;
     object-fit: cover;
@@ -462,6 +463,7 @@
     width: 100%; height: 100%;
     display: flex; align-items:center; justify-content:center;
   }
+  .modal-img .ph picture{ display: contents; }
   .modal-img .ph.placeholder{
     background:
       repeating-linear-gradient(
@@ -607,12 +609,12 @@
       <article class="body" id="body">
 <p><span class="sent">There is a corner near my apartment I have passed perhaps a thousand times.</span><span class="sent"> A pharmacy on one side, a tiled wall on the other, a small tree that loses its leaves in October and remembers them again in March.</span><span class="sent" data-fns="1"> Nothing about this corner is remarkable<sup class="fn-ref"><a href="#fn-1" data-fn="1">1</a></sup>, which is, of course, the point.</span></p>
 <aside class="sidenote" id="fn-1" data-fn="1"><span class="num">1</span>Or rather: it is remarkable only to me, which is a different thing.</aside>
-<figure class="photo" data-fig="0" style="--ratio:5/4"><div class="ph" style="--tone:color-mix(in oklab, var(--bg) 60%, #c8a98a 40%)"><img src="/a/walking-the-same-street/assets/corner.jpg" alt="The corner, mid-March" loading="lazy" /></div><figcaption><span class="cap-title">The corner, mid-March</span><span class="cap-caption">Wet tiles after the morning rain.</span><span class="cap-zoom">View ↗</span></figcaption></figure>
+<figure class="photo" data-fig="0" style="--ratio:5/4"><div class="ph" style="--tone:color-mix(in oklab, var(--bg) 60%, #c8a98a 40%)"><picture><source type="image/avif" srcset="/a/walking-the-same-street/assets/corner@640w.avif 640w, /a/walking-the-same-street/assets/corner@1024w.avif 1024w, /a/walking-the-same-street/assets/corner@1600w.avif 1600w" sizes="(max-width: 1024px) 100vw, 60vw"><source type="image/webp" srcset="/a/walking-the-same-street/assets/corner@640w.webp 640w, /a/walking-the-same-street/assets/corner@1024w.webp 1024w, /a/walking-the-same-street/assets/corner@1600w.webp 1600w" sizes="(max-width: 1024px) 100vw, 60vw"><img src="/a/walking-the-same-street/assets/corner.jpg" srcset="/a/walking-the-same-street/assets/corner@640w.jpg 640w, /a/walking-the-same-street/assets/corner@1024w.jpg 1024w, /a/walking-the-same-street/assets/corner@1600w.jpg 1600w" sizes="(max-width: 1024px) 100vw, 60vw" alt="The corner, mid-March" loading="lazy" /></picture></div><figcaption><span class="cap-title">The corner, mid-March</span><span class="cap-caption">Wet tiles after the morning rain.</span><span class="cap-zoom">View ↗</span></figcaption></figure>
 <p><span class="sent">I used to think attention required novelty — a new city, a new room, a new view.</span><span class="sent" data-fns="2"> But novelty makes a poor teacher<sup class="fn-ref"><a href="#fn-2" data-fn="2">2</a></sup>.</span><span class="sent"> It dazzles, and then it leaves.</span><span class="sent"> What I&#39;ve come to trust instead is repetition.</span><span class="sent"> The same street, walked slowly, becomes a small instrument for noticing the way the light changes, the way the neighbours change, the way I change.</span></p>
 <aside class="sidenote" id="fn-2" data-fn="2"><span class="num">2</span>Cf. Berger, <em>Ways of Seeing</em> — that a thing must be looked at twice before it begins to look back.</aside>
 <figure class="photo" data-fig="1" style="--ratio:16/9"><div class="ph placeholder" style="--tone:color-mix(in oklab, var(--bg) 60%, #9aa893 40%)"><span class="ph-label">The corner, out of season</span></div><figcaption><span class="cap-title">The corner, out of season</span><span class="cap-caption">A placeholder — figures work with no image file at all.</span><span class="cap-zoom">View ↗</span></figcaption></figure>
 <p><span class="sent">This morning the tiles were wet from a brief rain and the tree had begun to flower.</span><span class="sent"> I had not noticed, until today, that it flowered at all.</span></p>
-<figure class="photo static" style="--ratio:1600/1280"><div class="ph"><img src="/a/walking-the-same-street/assets/corner.jpg" alt="The tiles, in passing" loading="lazy" /></div><figcaption><span class="cap-title">A quieter picture</span><span class="cap-caption">The tiles, in passing</span></figcaption></figure>
+<figure class="photo static" style="--ratio:1600/1280"><div class="ph"><picture><source type="image/avif" srcset="/a/walking-the-same-street/assets/corner@640w.avif 640w, /a/walking-the-same-street/assets/corner@1024w.avif 1024w, /a/walking-the-same-street/assets/corner@1600w.avif 1600w" sizes="(max-width: 1024px) 100vw, 60vw"><source type="image/webp" srcset="/a/walking-the-same-street/assets/corner@640w.webp 640w, /a/walking-the-same-street/assets/corner@1024w.webp 1024w, /a/walking-the-same-street/assets/corner@1600w.webp 1600w" sizes="(max-width: 1024px) 100vw, 60vw"><img src="/a/walking-the-same-street/assets/corner.jpg" srcset="/a/walking-the-same-street/assets/corner@640w.jpg 640w, /a/walking-the-same-street/assets/corner@1024w.jpg 1024w, /a/walking-the-same-street/assets/corner@1600w.jpg 1600w" sizes="(max-width: 1024px) 100vw, 60vw" alt="The tiles, in passing" loading="lazy" /></picture></div><figcaption><span class="cap-title">A quieter picture</span><span class="cap-caption">The tiles, in passing</span></figcaption></figure>
       </article>
       <nav class="pager" id="pager"><a class="prev" href="/a/writing-code-slowly/"><span class="label">← Newer</span><span>Writing code, slowly</span></a><span class="next empty"></span></nav>
     </div>
@@ -669,7 +671,7 @@
 </div>
 
 <!-- ====================== FIGURE DATA ====================== -->
-<script id="figdata" type="application/json">[{"src":"/a/walking-the-same-street/assets/corner.jpg","title":"The corner, mid-March","caption":"Wet tiles after the morning rain.","ratio":"5/4","tone":"warm","description":"I have been making this picture for almost two years now. Each time the light is different and each time, somehow, the wall remains exactly itself — patient, mineral, slightly damp.\n","tech":{"Camera":"Pentax MX","Film":"Kodak Portra 400","Lens":"50mm f/1.7","Aperture":"f/2.8","Location":"Alfama, Lisbon"}},{"title":"The corner, out of season","caption":"A placeholder — figures work with no image file at all.","ratio":"16/9","tone":"sage","tech":{"Camera":"Olympus XA","Film":"Cinestill 400D"}}]</script>
+<script id="figdata" type="application/json">[{"src":"/a/walking-the-same-street/assets/corner.jpg","title":"The corner, mid-March","caption":"Wet tiles after the morning rain.","ratio":"5/4","tone":"warm","description":"I have been making this picture for almost two years now. Each time the light is different and each time, somehow, the wall remains exactly itself — patient, mineral, slightly damp.\n","tech":{"Camera":"Pentax MX","Film":"Kodak Portra 400","Lens":"50mm f/1.7","Aperture":"f/2.8","Location":"Alfama, Lisbon"},"img":{"widths":[640,1024,1600],"avif":"/a/walking-the-same-street/assets/corner@{w}w.avif","webp":"/a/walking-the-same-street/assets/corner@{w}w.webp","fallback":"/a/walking-the-same-street/assets/corner@{w}w.jpg"}},{"title":"The corner, out of season","caption":"A placeholder — figures work with no image file at all.","ratio":"16/9","tone":"sage","tech":{"Camera":"Olympus XA","Film":"Cinestill 400D"}}]</script>
 <script src="/assets/article.js"></script>
 
 </body>

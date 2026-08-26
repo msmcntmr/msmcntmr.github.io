@@ -190,6 +190,7 @@
     transition: transform .6s cubic-bezier(.2,.7,.2,1);
   }
   figure.photo:hover .ph{ transform: translateY(-2px); }
+  figure.photo .ph picture{ display: contents; }
   figure.photo .ph img{
     display: block; width: 100%; height: 100%;
     object-fit: cover;
@@ -462,6 +463,7 @@
     width: 100%; height: 100%;
     display: flex; align-items:center; justify-content:center;
   }
+  .modal-img .ph picture{ display: contents; }
   .modal-img .ph.placeholder{
     background:
       repeating-linear-gradient(

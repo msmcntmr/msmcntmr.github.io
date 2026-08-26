@@ -71,7 +71,29 @@
     const wrap = document.createElement('div');
     wrap.className = 'ph';
     if (it.tone) wrap.style.setProperty('--tone', toneColor(it.tone));
-    if (it.src){
+    if (it.src && it.img){
+      const sizes = 'min(861px, 58vw)';
+      const srcset = (tmpl) => it.img.widths.map(w => `${tmpl.replace('{w}', w)} ${w}w`).join(', ');
+      const picture = document.createElement('picture');
+      const avifSource = document.createElement('source');
+      avifSource.type = 'image/avif';
+      avifSource.srcset = srcset(it.img.avif);
+      avifSource.sizes = sizes;
+      const webpSource = document.createElement('source');
+      webpSource.type = 'image/webp';
+      webpSource.srcset = srcset(it.img.webp);
+      webpSource.sizes = sizes;
+      const img = document.createElement('img');
+      img.src = it.src;
+      img.srcset = srcset(it.img.fallback);
+      img.sizes = sizes;
+      img.alt = it.title || '';
+      picture.appendChild(avifSource);
+      picture.appendChild(webpSource);
+      picture.appendChild(img);
+      wrap.appendChild(picture);
+      attachPan(img);
+    } else if (it.src){
       const img = document.createElement('img');
       img.src = it.src;
       img.alt = it.title || '';

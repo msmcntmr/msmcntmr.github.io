@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://msmcntmr.github.io/sitemap.xml

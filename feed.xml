@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>vuotogeometrico</title>
+  <link href="https://msmcntmr.github.io/" />
+  <link href="https://msmcntmr.github.io/feed.xml" rel="self" />
+  <id>https://msmcntmr.github.io/</id>
+  <updated>2026-08-27T00:00:00.000Z</updated>
+  <entry>
+    <title>Sostantivi fastidiosi</title>
+    <link href="https://msmcntmr.github.io/a/sostantivi-fastidiosi/" />
+    <id>https://msmcntmr.github.io/a/sostantivi-fastidiosi/</id>
+    <updated>2026-08-27T00:00:00.000Z</updated>
+    <summary></summary>
+  </entry>
+</feed>

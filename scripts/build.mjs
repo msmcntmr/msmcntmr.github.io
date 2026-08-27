@@ -81,6 +81,14 @@ const SITE = {
   tweaks: { ...SITE_DEFAULTS.tweaks, ...(siteCfg.tweaks || {}) }
 };
 
+// canonical origin (e.g. https://msmcntmr.github.io or a custom domain) — absolute-URL
+// tags/files (canonical, OG, sitemap, feed, JSON-LD, CNAME) are omitted when unset
+const SITE_URL = String(SITE.url || '').replace(/\/+$/, '');
+if (!SITE_URL){
+  console.warn('⚠ site.yml has no "url:" set — canonical/OG/sitemap/robots/feed/JSON-LD will be omitted.');
+}
+function abs(pathname){ return SITE_URL ? SITE_URL + pathname : ''; }
+
 /* ---------------- helpers ---------------- */
 const esc = s => String(s).replace(/[&<>"']/g, c => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -409,14 +417,9 @@ async function renderArticleBody(article, slugSet){
     const toneStyle = it.tone ? ` style="--tone:${toneColorCss(it.tone)}"` : '';
     let inner;
     if (it.src && it.img){
-      const alt = esc(it.alt || it.title || it.caption || '');
-      const srcset = (tmpl) => esc(it.img.widths.map(w => `${tmpl.replace('{w}', w)} ${w}w`).join(', '));
+      const alt = it.alt || it.title || it.caption || '';
       const sizes = '(max-width: 1024px) 100vw, 60vw';
-      inner = `<div class="ph"${toneStyle}><picture>` +
-        `<source type="image/avif" srcset="${srcset(it.img.avif)}" sizes="${sizes}">` +
-        `<source type="image/webp" srcset="${srcset(it.img.webp)}" sizes="${sizes}">` +
-        `<img src="${esc(it.src)}" srcset="${srcset(it.img.fallback)}" sizes="${sizes}" alt="${alt}" loading="lazy" />` +
-        `</picture></div>`;
+      inner = `<div class="ph"${toneStyle}>${pictureMarkup(it.img, alt, sizes, it.src)}</div>`;
     } else if (it.src){
       inner = `<div class="ph"${toneStyle}><img src="${esc(it.src)}" alt="${esc(it.alt || it.title || it.caption || '')}" loading="lazy" /></div>`;
     } else {
@@ -593,6 +596,52 @@ async function copyArticleAssets(article, outDir){
   });
 }
 
+// resizes+re-encodes assets/404.png (a large, transparent illustration) into
+// AVIF/WebP/PNG width tiers and returns a <picture> tag for the 404 page.
+// Shown at one fixed spot in the layout, so a small dedicated ladder is used
+// instead of the article WIDTH_LADDER.
+async function buildNotFoundImage(){
+  if (!sharp) return null;
+  const src = path.join(ROOT, 'assets', '404.png');
+  if (!fs.existsSync(src)) return null;
+  const widths = [480, 960];
+  const formats = ['avif', 'webp', 'png']; // source has real transparency — png fallback, not jpeg
+  const outDirPath = path.join(OUT, 'assets');
+  fs.mkdirSync(outDirPath, { recursive: true });
+  for (const format of formats){
+    for (const width of widths){
+      await sharp(src)
+        .resize(width, width, { fit: 'inside', withoutEnlargement: true })
+        .toFormat(format, ENCODE_OPTS[format])
+        .toFile(path.join(outDirPath, `404@${width}w.${FORMAT_EXT[format]}`));
+    }
+  }
+  const img = { widths, avif: '/assets/404@{w}w.avif', webp: '/assets/404@{w}w.webp', fallback: '/assets/404@{w}w.png' };
+  return pictureMarkup(img, '', '480px');
+}
+
+// builds a static 1200x630 social-card PNG (same 3x3 grid language as the
+// animated mark / favicon, scaled up) used as the default og:image/twitter:image
+// for pages that have no figure of their own to use instead.
+async function buildDefaultOgImage(){
+  if (!sharp) return;
+  const W = 1200, H = 630;
+  const cell = 120, gap = 30, span = 3 * cell + 2 * gap;
+  const offsetX = (W - span) / 2, offsetY = (H - span) / 2;
+  // mirrors the "frame" entry in assets/shared.js's PATTERNS (all cells filled except center)
+  const FRAME = [1, 1, 1, 1, 0, 1, 1, 1, 1];
+  const rects = FRAME.map((v, i) => {
+    if (!v) return '';
+    const r = Math.floor(i / 3), c = i % 3;
+    const x = offsetX + c * (cell + gap);
+    const y = offsetY + r * (cell + gap);
+    return `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" fill="#111111"/>`;
+  }).join('');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#ededed"/>${rects}</svg>`;
+  fs.mkdirSync(path.join(OUT, 'assets'), { recursive: true });
+  await sharp(Buffer.from(svg)).png().toFile(path.join(OUT, 'assets', 'og-default.png'));
+}
+
 /* ====================================================================
    page assembly
    ==================================================================== */
@@ -614,6 +663,43 @@ function commonVars(){
     EMAIL: esc(SITE.email),
     SF_DEFAULTS: sfDefaults
   };
+}
+
+// builds a <picture> tag from a { widths, avif, webp, fallback }-shaped
+// object (the same shape emitFigure attaches to figdata as `it.img`)
+function pictureMarkup(img, alt, sizes, fallbackSrc){
+  const srcset = (tmpl) => esc(img.widths.map(w => `${tmpl.replace('{w}', w)} ${w}w`).join(', '));
+  const src = fallbackSrc || img.fallback.replace('{w}', img.widths[img.widths.length - 1]);
+  return `<picture>` +
+    `<source type="image/avif" srcset="${srcset(img.avif)}" sizes="${sizes}">` +
+    `<source type="image/webp" srcset="${srcset(img.webp)}" sizes="${sizes}">` +
+    `<img src="${esc(src)}" srcset="${srcset(img.fallback)}" sizes="${sizes}" alt="${esc(alt)}" loading="lazy" />` +
+    `</picture>`;
+}
+
+function buildArticleJsonLd(a, desc, ogImage){
+  const ld = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: a.title,
+    datePublished: a.date.toISOString().slice(0, 10),
+    description: desc
+  };
+  if (SITE_URL) ld.url = abs(`/a/${a.slug}/`);
+  if (SITE.name) ld.author = { '@type': 'Person', name: SITE.name };
+  if (ogImage) ld.image = ogImage;
+  return ld;
+}
+
+function buildSiteJsonLd(){
+  const ld = { '@context': 'https://schema.org', '@type': 'WebSite', name: SITE.name };
+  if (SITE_URL) ld.url = SITE_URL;
+  if (SITE.description) ld.description = SITE.description;
+  return ld;
+}
+
+function jsonLdScript(ld){
+  return JSON.stringify(ld).replace(/</g, '\\u003c');
 }
 
 /* ---------------- main ---------------- */
@@ -647,6 +733,10 @@ for (let i = 0; i < articles.length; i++){
   const outDir = path.join(OUT, 'a', a.slug);
   fs.mkdirSync(outDir, { recursive: true });
   const desc = a.description || (firstParagraphText.length > 220 ? firstParagraphText.slice(0, 217) + '…' : firstParagraphText);
+  const ogImagePath = figdata[0]?.img?.fallback?.replace('{w}', figdata[0].img.widths[figdata[0].img.widths.length - 1])
+    || figdata[0]?.src
+    || (sharp ? '/assets/og-default.png' : null);
+  const ogImage = ogImagePath ? abs(ogImagePath) : '';
   fs.writeFileSync(path.join(outDir, 'index.html'), fill(tplArticle, {
     ...commonVars(),
     PAGE_TITLE: `${esc(a.title)} — ${esc(SITE.name)}`,
@@ -655,7 +745,15 @@ for (let i = 0; i < articles.length; i++){
     TITLE: esc(a.title),
     BODY: html,
     PAGER: pager,
-    FIGDATA: JSON.stringify(figdata).replace(/</g, '\\u003c')
+    FIGDATA: JSON.stringify(figdata).replace(/</g, '\\u003c'),
+    CANONICAL_URL: abs(`/a/${a.slug}/`),
+    OG_TYPE: 'article',
+    OG_TITLE: esc(a.title),
+    OG_DESCRIPTION: esc(desc),
+    OG_IMAGE: esc(ogImage),
+    TWITTER_CARD: 'summary_large_image',
+    FEED_URL: abs('/feed.xml'),
+    JSONLD: jsonLdScript(buildArticleJsonLd(a, desc, ogImage))
   }));
   await copyArticleAssets(a, outDir);
   console.log(`  /a/${a.slug}/  (${figdata.length} figure${figdata.length === 1 ? '' : 's'})`);
@@ -686,15 +784,64 @@ fs.writeFileSync(path.join(OUT, 'index.html'), fill(tplIndex, {
   ...commonVars(),
   PAGE_TITLE: esc(SITE.name),
   DESCRIPTION: esc(SITE.description || ''),
-  GROUPS: groups
+  GROUPS: groups,
+  CANONICAL_URL: abs('/'),
+  OG_TYPE: 'website',
+  OG_TITLE: esc(SITE.name),
+  OG_DESCRIPTION: esc(SITE.description || ''),
+  OG_IMAGE: esc(sharp ? abs('/assets/og-default.png') : ''),
+  TWITTER_CARD: 'summary_large_image',
+  FEED_URL: abs('/feed.xml'),
+  JSONLD: jsonLdScript(buildSiteJsonLd())
 }));
 
 /* ---------------- static assets + housekeeping ---------------- */
 fs.mkdirSync(path.join(OUT, 'assets'), { recursive: true });
 for (const f of fs.readdirSync(path.join(ROOT, 'assets'))){
+  if (f === '404.png' && sharp) continue; // processed separately into optimized variants below
   fs.copyFileSync(path.join(ROOT, 'assets', f), path.join(OUT, 'assets', f));
 }
 fs.writeFileSync(path.join(OUT, '.nojekyll'), '');
+
+const notFoundImg = await buildNotFoundImage();
+await buildDefaultOgImage();
+
+if (SITE_URL){
+  const host = new URL(SITE_URL).hostname;
+  if (host && !host.endsWith('.github.io')){
+    fs.writeFileSync(path.join(OUT, 'CNAME'), host + '\n');
+  }
+}
+
+const robotsLines = ['User-agent: *', 'Allow: /'];
+if (SITE_URL) robotsLines.push('', `Sitemap: ${abs('/sitemap.xml')}`);
+fs.writeFileSync(path.join(OUT, 'robots.txt'), robotsLines.join('\n') + '\n');
+
+if (SITE_URL){
+  const urls = [
+    { loc: abs('/'), lastmod: articles[0]?.date || null },
+    ...articles.map(a => ({ loc: abs(`/a/${a.slug}/`), lastmod: a.date }))
+  ];
+  const body = urls.map(u => `  <url>\n    <loc>${esc(u.loc)}</loc>${u.lastmod ? `\n    <lastmod>${u.lastmod.toISOString().slice(0, 10)}</lastmod>` : ''}\n  </url>`).join('\n');
+  fs.writeFileSync(path.join(OUT, 'sitemap.xml'),
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`);
+}
+
+if (SITE_URL){
+  const updated = (articles[0]?.date || new Date()).toISOString();
+  const entries = articles.map(a => {
+    const d = a.description || '';
+    return `  <entry>
+    <title>${esc(a.title)}</title>
+    <link href="${esc(abs(`/a/${a.slug}/`))}" />
+    <id>${esc(abs(`/a/${a.slug}/`))}</id>
+    <updated>${a.date.toISOString()}</updated>
+    <summary>${esc(d)}</summary>
+  </entry>`;
+  }).join('\n');
+  fs.writeFileSync(path.join(OUT, 'feed.xml'),
+    `<?xml version="1.0" encoding="utf-8"?>\n<feed xmlns="http://www.w3.org/2005/Atom">\n  <title>${esc(SITE.name)}</title>\n  <link href="${esc(SITE_URL + '/')}" />\n  <link href="${esc(abs('/feed.xml'))}" rel="self" />\n  <id>${esc(SITE_URL + '/')}</id>\n  <updated>${updated}</updated>\n${entries}\n</feed>\n`);
+}
 
 // minimal 404 that keeps the design language
 fs.writeFileSync(path.join(OUT, '404.html'), fill(tplArticle, {
@@ -703,9 +850,18 @@ fs.writeFileSync(path.join(OUT, '404.html'), fill(tplArticle, {
   DESCRIPTION: '',
   DATE: '—',
   TITLE: 'Not found',
-  BODY: '<p><span class="sent">This page doesn’t exist (or hasn’t been written yet).</span></p>',
+  BODY: (notFoundImg ? `<figure class="photo static" style="--ratio:3/2"><div class="ph" style="background:transparent">${notFoundImg}</div></figure>\n` : '') +
+    '<p><span class="sent">This page doesn’t exist (or hasn’t been written yet).</span></p>',
   PAGER: '<span class="prev empty"></span><span class="next empty"></span>',
-  FIGDATA: '[]'
+  FIGDATA: '[]',
+  CANONICAL_URL: '',
+  OG_TYPE: '',
+  OG_TITLE: '',
+  OG_DESCRIPTION: '',
+  OG_IMAGE: '',
+  TWITTER_CARD: '',
+  FEED_URL: abs('/feed.xml'),
+  JSONLD: ''
 }));
 
 console.log(`\nBuilt ${articles.length} article${articles.length === 1 ? '' : 's'} → ${OUT}`);

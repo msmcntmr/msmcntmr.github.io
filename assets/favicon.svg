@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+<style>
+.bg{fill:#ededed}
+.fg{fill:#111111}
+@media (prefers-color-scheme: dark){
+.bg{fill:#111111}
+.fg{fill:#ededed}
+}
+</style>
+<rect class="bg" x="0" y="0" width="10" height="10"/>
+<rect class="fg" x="3.700" y="0.500" width="2.6" height="2.6" shape-rendering="crispEdges"/>
+<rect class="fg" x="0.500" y="3.700" width="2.6" height="2.6" shape-rendering="crispEdges"/>
+<rect class="fg" x="3.700" y="3.700" width="2.6" height="2.6" shape-rendering="crispEdges"/>
+<rect class="fg" x="6.900" y="3.700" width="2.6" height="2.6" shape-rendering="crispEdges"/>
+<rect class="fg" x="3.700" y="6.900" width="2.6" height="2.6" shape-rendering="crispEdges"/>
+</svg>

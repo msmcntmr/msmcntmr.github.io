@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{{PAGE_TITLE}}</title>
 <meta name="description" content="{{DESCRIPTION}}" />
+<link rel="canonical" href="{{CANONICAL_URL}}" />
+<meta property="og:type" content="{{OG_TYPE}}" />
+<meta property="og:site_name" content="{{SITE_NAME}}" />
+<meta property="og:title" content="{{OG_TITLE}}" />
+<meta property="og:description" content="{{OG_DESCRIPTION}}" />
+<meta property="og:url" content="{{CANONICAL_URL}}" />
+<meta property="og:image" content="{{OG_IMAGE}}" />
+<meta name="twitter:card" content="{{TWITTER_CARD}}" />
+<meta name="twitter:title" content="{{OG_TITLE}}" />
+<meta name="twitter:description" content="{{OG_DESCRIPTION}}" />
+<meta name="twitter:image" content="{{OG_IMAGE}}" />
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+<link rel="alternate" type="application/atom+xml" title="{{SITE_NAME}}" href="{{FEED_URL}}" />
 <link rel="stylesheet" href="/assets/shared.css" />
 <script>
   window.__SF_DEFAULTS = {{SF_DEFAULTS}};
@@ -595,6 +608,7 @@
     .fade > *{ opacity:1; transform:none; }
   }
 </style>
+<script type="application/ld+json">{{JSONLD}}</script>
 </head>
 <body>
 

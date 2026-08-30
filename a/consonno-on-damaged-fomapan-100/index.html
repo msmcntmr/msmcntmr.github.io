@@ -137,6 +137,56 @@
   .body p:last-child{ margin-bottom: 0; }
   .body em{ font-style: italic; }
 
+  /* ---------- prose links ----------
+     Resting: hairline rule at 30% ink, like the index entries.
+     Hover: an ink line sweeps in from the left over it. Painted with
+     background gradients (not ::after) so it survives line wraps. */
+  .body a[href]{
+    color: inherit;
+    text-decoration: none;
+    padding-bottom: 0.12em;
+    background-image:
+      linear-gradient(currentColor, currentColor),
+      linear-gradient(color-mix(in oklab, currentColor 30%, transparent),
+                      color-mix(in oklab, currentColor 30%, transparent));
+    background-repeat: no-repeat;
+    background-position: 0 100%, 0 100%;
+    background-size: 0% 1px, 100% 1px;
+    transition: background-size .45s cubic-bezier(.2,.7,.2,1);
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+  .body a[href]:hover,
+  .body a[href]:focus-visible{ background-size: 100% 1px, 100% 1px; }
+
+  /* the build marks outbound links target="_blank"; they get the arrow
+     used elsewhere on the site, so "leaves the page" is visible up front */
+  .body a[target="_blank"]::after{
+    content: "\2197";
+    display: inline-block;
+    font-size: .78em;
+    line-height: 1;
+    margin-left: .18em;
+    vertical-align: .15em;
+    color: var(--mute);
+    transform: translate(-1px, 1px);
+    transition: transform .35s cubic-bezier(.2,.7,.2,1), color .25s ease;
+  }
+  .body a[target="_blank"]:hover::after{
+    color: var(--ink);
+    transform: translate(0, 0);
+  }
+
+  /* footnote markers keep their own (underline-free) treatment */
+  .body sup.fn-ref a[href]{
+    background-image: none;
+    padding-bottom: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .body a[href], .body a[target="_blank"]::after{ transition: none; }
+  }
+
   /* ---------- footnote markers ---------- */
   sup.fn-ref{
     font-size: 0.7em;
@@ -624,7 +674,7 @@
 <p><span class="sent">I visited the site of Consonno several times over the years.</span><span class="sent"> I believe the first time was in 2015 or thereabouts, and a second time a few years later; on both occasions I took digital photographs, first with a Pentax system and then with a Fujifilm one.</span><span class="sent"> A few years later, perhaps in 2019, I went back without any great expectations, carrying a 4×5-inch large-format camera.</span><span class="sent"> I say “without any great expectations” because I remember it being a swelteringly hot summer afternoon, I had some old Fomapan 100 film to use up, and I knew it was most likely damaged — so I could neither have nor wanted to travel somewhere farther away and more evocative, somewhere that would have deserved much better.</span></p>
 <figure class="photo" data-fig="0" style="--ratio:1756/2200"><div class="ph"><picture><source type="image/avif" srcset="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@640w.avif 640w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1024w.avif 1024w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1600w.avif 1600w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1756w.avif 1756w" sizes="(max-width: 1024px) 100vw, 60vw"><source type="image/webp" srcset="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@640w.webp 640w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1024w.webp 1024w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1600w.webp 1600w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1756w.webp 1756w" sizes="(max-width: 1024px) 100vw, 60vw"><img src="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002.jpg" srcset="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@640w.jpg 640w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1024w.jpg 1024w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1600w.jpg 1600w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1756w.jpg 1756w" sizes="(max-width: 1024px) 100vw, 60vw" alt="The Minaret building, I" loading="lazy" /></picture></div><figcaption><span class="cap-title">The Minaret building, I</span><span class="cap-caption">Tilt-shift photograph of the Minaret, taken from what remains of the road that runs along its northern side</span><span class="cap-zoom">View ↗</span></figcaption></figure>
 <p><span class="sent">For those who may not know, Consonno is a municipality in the province of Lecco which, over a period of just under twenty years between 1960 and 1976, was chosen as the site for the construction of a “city of toys.”</span><span class="sent"> In the imagination of its creator, Mario Bagno, it was meant to become the ultimate entertainment centre: a place that was always open and always celebrating, as some of the signs along the road leading to the site once proclaimed.</span></p>
-<p><span class="sent">For further information, here is the link to the relevant <a href="https://en.wikipedia.org/wiki/Consonno">Wikipedia page</a>.</span></p>
+<p><span class="sent">For further information, here is the link to the relevant <a href="https://en.wikipedia.org/wiki/Consonno" target="_blank" rel="noopener noreferrer">Wikipedia page</a>.</span></p>
 <figure class="photo" data-fig="1" style="--ratio:1752/2200"><div class="ph"><picture><source type="image/avif" srcset="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@640w.avif 640w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@1024w.avif 1024w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@1600w.avif 1600w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@1752w.avif 1752w" sizes="(max-width: 1024px) 100vw, 60vw"><source type="image/webp" srcset="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@640w.webp 640w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@1024w.webp 1024w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@1600w.webp 1600w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@1752w.webp 1752w" sizes="(max-width: 1024px) 100vw, 60vw"><img src="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003.jpg" srcset="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@640w.jpg 640w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@1024w.jpg 1024w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@1600w.jpg 1600w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@1752w.jpg 1752w" sizes="(max-width: 1024px) 100vw, 60vw" alt="The Minaret building, II" loading="lazy" /></picture></div><figcaption><span class="cap-title">The Minaret building, II</span><span class="cap-caption">The upper part of the Minaret, including the dome and tower, photographed from its own roof</span><span class="cap-zoom">View ↗</span></figcaption></figure>
 <p><span class="sent">In short, the whole thing eventually fell apart.</span><span class="sent"> First, a landslide blocked the village’s only access road.</span><span class="sent"> It was later repaired, but in the years that followed, fewer and fewer visitors apparently made their way there.</span><span class="sent"> The buildings slowly began to empty out and were abandoned, until a second landslide completely destroyed that same sole access road, effectively bringing Consonno itself to an end.</span></p>
 <p><span class="sent">Many years later, this was compounded by the most mindless, Lord of the Flies-style mob mentality, which led to the defacement and destruction of the buildings and the site’s recreational and artistic works.</span><span class="sent"> Between rave parties and uncivil visitors, the area is now unrecognisable and quite dangerous to visit, with several structures in a state of collapse.</span></p>

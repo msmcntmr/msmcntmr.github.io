@@ -202,7 +202,8 @@ function renderInlineNodes(nodes, ctx){
         break;
       case 'link': {
         const href = resolveLink(node.url, ctx);
-        segs.push({ text: false, s: `<a href="${esc(href)}">${inlineHtml(node.children, ctx)}</a>` });
+        const ext = isExternalLink(href) ? ' target="_blank" rel="noopener noreferrer"' : '';
+        segs.push({ text: false, s: `<a href="${esc(href)}"${ext}>${inlineHtml(node.children, ctx)}</a>` });
         break;
       }
       case 'image':
@@ -268,6 +269,17 @@ function wrapSentences(segs){
 }
 
 /* ---------------- link resolution ---------------- */
+// Links that leave the site open in a new tab; internal ones (relative,
+// anchors, or absolute URLs back to our own host) stay in place. mailto:
+// and tel: are handed to the OS, so they get no target either.
+function isExternalLink(href){
+  if (!/^https?:\/\//i.test(href)) return false;
+  if (!SITE_URL) return true;
+  try {
+    return new URL(href).hostname !== new URL(SITE_URL).hostname;
+  } catch { return false; }
+}
+
 function resolveLink(href, ctx){
   if (!href || /^(https?:|mailto:|tel:|#|\/)/.test(href)) return href || '';
   // relative link into another article folder or its index.md

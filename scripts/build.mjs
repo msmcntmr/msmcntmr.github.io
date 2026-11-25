@@ -343,7 +343,7 @@ function parseArticle(dir, slugSet){
   if (isNaN(date)) throw new Error(`${folder}: missing/invalid date (frontmatter "date:" or YYYY-MM-DD- folder prefix)`);
   if (!fm.title) throw new Error(`${folder}: missing "title:" in frontmatter`);
 
-  return { dir, folder, slug, date, title: String(fm.title), draft: !!fm.draft, description: fm.description || '', tree, figures };
+  return { dir, folder, slug, date, title: String(fm.title), draft: !!fm.draft, description: fm.description || '', abstract: fm.abstract ? String(fm.abstract).trim() : '', tree, figures };
 }
 
 async function renderArticleBody(article, slugSet){
@@ -372,6 +372,7 @@ async function renderArticleBody(article, slugSet){
   const figdata = [];
   const emittedNotes = new Set();
   let firstParagraphText = '';
+  let hasMermaid = false;
 
   const emitSidenotes = () => {
     for (const id of ctx.fnOrder){
@@ -453,6 +454,11 @@ async function renderArticleBody(article, slugSet){
     }
   };
 
+  // a final `---` followed by a heading opens an endnotes section
+  // (sources, notes); its contents render smaller — see .endnotes-rule
+  const lastHr = flow.findLastIndex(n => n.type === 'thematicBreak');
+  const endnotesHr = lastHr >= 0 && flow[lastHr + 1]?.type === 'heading' ? flow[lastHr] : null;
+
   for (const node of flow){
     switch (node.type){
       case 'paragraph': {
@@ -477,7 +483,14 @@ async function renderArticleBody(article, slugSet){
         break;
       }
       case 'code':
-        parts.push(renderCodeFig(node.lang || '', node.meta || '', node.value));
+        if (node.lang === 'mermaid'){
+          // rendered client-side by /assets/diagrams.js; the escaped source
+          // stays readable if the script never runs
+          parts.push(`<figure class="diagram"><pre class="mermaid">${escCode(node.value)}</pre></figure>`);
+          hasMermaid = true;
+        } else {
+          parts.push(renderCodeFig(node.lang || '', node.meta || '', node.value));
+        }
         break;
       case 'heading':
         parts.push(`<h${node.depth}>${inlineHtml(node.children, ctx)}</h${node.depth}>`);
@@ -494,7 +507,7 @@ async function renderArticleBody(article, slugSet){
         break;
       }
       case 'thematicBreak':
-        parts.push('<hr />');
+        parts.push(node === endnotesHr ? '<hr class="endnotes-rule" />' : '<hr />');
         break;
       case 'html':
         parts.push(node.value);
@@ -505,7 +518,7 @@ async function renderArticleBody(article, slugSet){
   }
   emitSidenotes();
 
-  return { html: parts.join('\n'), figdata, firstParagraphText };
+  return { html: parts.join('\n'), figdata, firstParagraphText, hasMermaid };
 }
 
 function toneColorCss(tone){
@@ -732,7 +745,7 @@ if (dupes.length) throw new Error('duplicate slugs: ' + dupes.join(', '));
 
 for (let i = 0; i < articles.length; i++){
   const a = articles[i];
-  const { html, figdata, firstParagraphText } = await renderArticleBody(a, slugSet);
+  const { html, figdata, firstParagraphText, hasMermaid } = await renderArticleBody(a, slugSet);
 
   const prev = i > 0 ? articles[i - 1] : null;          // newer
   const next = i < articles.length - 1 ? articles[i + 1] : null; // older
@@ -744,7 +757,7 @@ for (let i = 0; i < articles.length; i++){
 
   const outDir = path.join(OUT, 'a', a.slug);
   fs.mkdirSync(outDir, { recursive: true });
-  const desc = a.description || (firstParagraphText.length > 220 ? firstParagraphText.slice(0, 217) + '…' : firstParagraphText);
+  const desc = a.description || a.abstract || (firstParagraphText.length > 220 ? firstParagraphText.slice(0, 217) + '…' : firstParagraphText);
   const ogImagePath = figdata[0]?.img?.fallback?.replace('{w}', figdata[0].img.widths[figdata[0].img.widths.length - 1])
     || figdata[0]?.src
     || (sharp ? '/assets/og-default.png' : null);
@@ -755,7 +768,9 @@ for (let i = 0; i < articles.length; i++){
     DESCRIPTION: esc(desc),
     DATE: fmtLong(a.date),
     TITLE: esc(a.title),
+    ABSTRACT: a.abstract ? `<p class="abstract">${esc(a.abstract)}</p>` : '',
     BODY: html,
+    DIAGRAM_SCRIPT: hasMermaid ? '<script type="module" src="/assets/diagrams.js"></script>' : '',
     PAGER: pager,
     FIGDATA: JSON.stringify(figdata).replace(/</g, '\\u003c'),
     CANONICAL_URL: abs(`/a/${a.slug}/`),
@@ -842,7 +857,7 @@ if (SITE_URL){
 if (SITE_URL){
   const updated = (articles[0]?.date || new Date()).toISOString();
   const entries = articles.map(a => {
-    const d = a.description || '';
+    const d = a.description || a.abstract || '';
     return `  <entry>
     <title>${esc(a.title)}</title>
     <link href="${esc(abs(`/a/${a.slug}/`))}" />

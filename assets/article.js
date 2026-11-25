@@ -29,6 +29,31 @@
     });
   });
 
+  /* ----- sidenote collision avoidance (two-column layout only) ----- */
+  const notes = Object.values(sidenoteRefs);
+  const wide = window.matchMedia('(min-width: 1101px)');
+  function layoutSidenotes(){
+    let prevBottom = -Infinity;
+    for (const note of notes){
+      note.style.top = '';
+      if (!wide.matches) continue;
+      const top = note.getBoundingClientRect().top + window.scrollY;
+      const shift = Math.max(0, prevBottom + 20 - top);
+      if (shift) note.style.top = shift + 'px';
+      prevBottom = top + shift + note.scrollHeight;
+    }
+  }
+  if (notes.length){
+    let raf = 0;
+    const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(layoutSidenotes); };
+    schedule();
+    window.addEventListener('resize', schedule);
+    window.addEventListener('load', schedule);              // images settle
+    document.fonts && document.fonts.ready.then(schedule);  // web fonts reflow
+    // text-size / typeface tweaks rewrite tokens on <html style>
+    new MutationObserver(schedule).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+  }
+
   Object.entries(sidenoteRefs).forEach(([n, aside]) => {
     const enter = () => {
       $body.querySelectorAll(`.sent[data-fns~="${n}"]`).forEach(s => s.classList.add('is-hover-sent'));

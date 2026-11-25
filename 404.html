@@ -123,11 +123,42 @@
     font-size: calc(var(--fs, 14px) + 1px);
     line-height: var(--lh, 1.55);
   }
-  .body > p,
-  .body > figure,
-  .body > h2,
-  .body > blockquote{ grid-column: 1; }
+  /* everything flows in the text column; only sidenotes use column 2
+     (lists and rules used to auto-place into the 160px sidenote track) */
+  .body > :not(.sidenote){ grid-column: 1; }
+
+  .body ul, .body ol{
+    margin: 0 0 1.2em;
+    padding-left: 1.3em;
+    line-height: calc(var(--lh, 1.55) * 1.08);
+  }
+  .body li{ margin-bottom: .5em; padding-left: .2em; }
+  .body li::marker{ color: var(--mute); }
+  .body li a[href]{ overflow-wrap: anywhere; }
+  .body hr{
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 1.2em 0 2.4em;
+  }
+  .body hr + :is(h2, h3){ margin-top: 0; }
+  /* endnotes: everything after a final rule + heading (heading keeps its size) */
+  .body hr.endnotes-rule ~ :is(p, ul, ol, blockquote){
+    font-size: calc(var(--fs, 14px) * 0.85);
+  }
+  .body hr.endnotes-rule ~ :is(ul, ol) li{ margin-bottom: .35em; }
   .body > .sidenote{ grid-column: 2; }
+  .sidenote a, .sidenote code{ overflow-wrap: anywhere; }
+  /* two-column layout: a note hangs beside its paragraph without making
+     the grid row taller (which opened gaps between sections); article.js
+     nudges a note down only if it would overlap the previous one */
+  @media (min-width: 1101px){
+    .body > .sidenote{
+      height: 0;
+      margin-bottom: 0;
+      overflow: visible;
+      position: relative;
+    }
+  }
 
   .body p{
     margin: 0 0 1.2em;
@@ -135,6 +166,28 @@
     line-height: calc(var(--lh, 1.55) * 1.08);
   }
   .body p:last-child{ margin-bottom: 0; }
+
+  .body blockquote{
+    margin: 0 0 1.2em;
+    padding: 2px 0 2px 20px;
+    border-left: 2px solid color-mix(in oklab, var(--ink) 28%, transparent);
+    font-style: italic;
+  }
+  .body blockquote em{ font-style: normal; }
+
+  /* section headings: same face as the article title, quieter than it */
+  .body h2, .body h3{
+    font-family: var(--title-font, var(--sans));
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0;
+    text-wrap: balance;
+    margin: 1.5em 0 0.7em; /* + the preceding paragraph's 1.2em */
+  }
+  .body h2{ font-size: calc(var(--fs, 14px) * 1.4); }
+  .body h3{ font-size: calc(var(--fs, 14px) * 1.15); }
+  body[data-titleface="instrument"] .body :is(h2, h3){ font-weight: 400; font-style: italic; }
+  body[data-titleface="newsreader"] .body :is(h2, h3){ font-weight: 400; }
   .body em{ font-style: italic; }
 
   /* ---------- prose links ----------
@@ -310,9 +363,45 @@
   }
   figure.photo:hover figcaption .cap-zoom{ opacity: 1; color: var(--ink); }
 
+  /* ---------- abstract (frontmatter "abstract:") ---------- */
+  .ttl:has(+ .abstract){ margin-bottom: 20px; }
+  .abstract{
+    margin: 0 0 56px;
+    max-width: min(var(--body-ch, 48ch), 100%);
+    color: color-mix(in oklab, var(--ink) 78%, var(--bg));
+    font-size: calc(var(--fs, 14px) * 1.2);
+    line-height: 1.4;
+    text-wrap: pretty;
+  }
+
+  /* ---------- mermaid diagrams ---------- */
+  figure.diagram{
+    margin: 12px 0 36px;
+    padding: 24px 16px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--panel);
+    overflow-x: auto;
+  }
+  figure.diagram pre.mermaid{
+    margin: 0;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--mute);
+    white-space: pre;
+  }
+  figure.diagram pre.mermaid[data-rendered]{
+    display: flex;
+    justify-content: safe center; /* plain center clips the left edge of an overflowing diagram */
+    white-space: normal;
+  }
+  figure.diagram svg{ width: 100%; height: auto; }
+  /* diagrams may also use the sidenote column's width */
+  .body > figure.diagram{ grid-column: 1 / -1; }
+
   /* ---------- code blocks (IDE-style) ---------- */
   figure.ide{
-    margin: 32px 0 36px;
+    margin: 12px 0 36px; /* + the preceding paragraph's 1.2em ≈ 36px above */
     padding: 0;
     border: 1px solid var(--line);
     border-radius: 3px;
@@ -647,10 +736,20 @@
     .pane{ padding: 40px clamp(20px, 5vw, 44px) 64px; }
     .back{ margin-bottom: 32px; }
     .ttl{ margin-bottom: 32px; }
+    .abstract{ margin-bottom: 32px; }
     .pager{ margin-top: 64px; grid-template-columns: 1fr; gap: 20px; }
     .pager .next{ text-align: left; }
     .pager .next:hover{ transform: translateX(-4px); }
     figure.photo{ margin: 20px 0 28px; }
+  }
+
+  /* phones: keep the title > heading > abstract > body hierarchy when
+     the title itself shrinks to its 26px floor */
+  @media (max-width: 640px){
+    .body h2{ font-size: calc(var(--fs, 14px) * 1.25); }
+    .body h3{ font-size: calc(var(--fs, 14px) * 1.1); }
+    .abstract{ font-size: calc(var(--fs, 14px) * 1.12); }
+    figure.diagram{ padding: 16px 8px; }
   }
 
   @media (prefers-reduced-motion: reduce){
@@ -670,6 +769,7 @@
       <a class="back" href="/"><span class="arr">←</span><span>vuotogeometrico</span></a>
       <div class="meta" id="meta">—</div>
       <h1 class="ttl" id="ttl">Not found</h1>
+
       <article class="body" id="body">
 <figure class="photo static" style="--ratio:3/2"><div class="ph" style="background:transparent"><picture><source type="image/avif" srcset="/assets/404@480w.avif 480w, /assets/404@960w.avif 960w" sizes="480px"><source type="image/webp" srcset="/assets/404@480w.webp 480w, /assets/404@960w.webp 960w" sizes="480px"><img src="/assets/404@960w.png" srcset="/assets/404@480w.png 480w, /assets/404@960w.png 960w" sizes="480px" alt="" loading="lazy" /></picture></div></figure>
 <p><span class="sent">This page doesn’t exist (or hasn’t been written yet).</span></p>
@@ -731,6 +831,7 @@
 <!-- ====================== FIGURE DATA ====================== -->
 <script id="figdata" type="application/json">[]</script>
 <script src="/assets/article.js"></script>
+
 
 </body>
 </html>

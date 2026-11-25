@@ -123,11 +123,42 @@
     font-size: calc(var(--fs, 14px) + 1px);
     line-height: var(--lh, 1.55);
   }
-  .body > p,
-  .body > figure,
-  .body > h2,
-  .body > blockquote{ grid-column: 1; }
+  /* everything flows in the text column; only sidenotes use column 2
+     (lists and rules used to auto-place into the 160px sidenote track) */
+  .body > :not(.sidenote){ grid-column: 1; }
+
+  .body ul, .body ol{
+    margin: 0 0 1.2em;
+    padding-left: 1.3em;
+    line-height: calc(var(--lh, 1.55) * 1.08);
+  }
+  .body li{ margin-bottom: .5em; padding-left: .2em; }
+  .body li::marker{ color: var(--mute); }
+  .body li a[href]{ overflow-wrap: anywhere; }
+  .body hr{
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 1.2em 0 2.4em;
+  }
+  .body hr + :is(h2, h3){ margin-top: 0; }
+  /* endnotes: everything after a final rule + heading (heading keeps its size) */
+  .body hr.endnotes-rule ~ :is(p, ul, ol, blockquote){
+    font-size: calc(var(--fs, 14px) * 0.85);
+  }
+  .body hr.endnotes-rule ~ :is(ul, ol) li{ margin-bottom: .35em; }
   .body > .sidenote{ grid-column: 2; }
+  .sidenote a, .sidenote code{ overflow-wrap: anywhere; }
+  /* two-column layout: a note hangs beside its paragraph without making
+     the grid row taller (which opened gaps between sections); article.js
+     nudges a note down only if it would overlap the previous one */
+  @media (min-width: 1101px){
+    .body > .sidenote{
+      height: 0;
+      margin-bottom: 0;
+      overflow: visible;
+      position: relative;
+    }
+  }
 
   .body p{
     margin: 0 0 1.2em;
@@ -135,6 +166,28 @@
     line-height: calc(var(--lh, 1.55) * 1.08);
   }
   .body p:last-child{ margin-bottom: 0; }
+
+  .body blockquote{
+    margin: 0 0 1.2em;
+    padding: 2px 0 2px 20px;
+    border-left: 2px solid color-mix(in oklab, var(--ink) 28%, transparent);
+    font-style: italic;
+  }
+  .body blockquote em{ font-style: normal; }
+
+  /* section headings: same face as the article title, quieter than it */
+  .body h2, .body h3{
+    font-family: var(--title-font, var(--sans));
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0;
+    text-wrap: balance;
+    margin: 1.5em 0 0.7em; /* + the preceding paragraph's 1.2em */
+  }
+  .body h2{ font-size: calc(var(--fs, 14px) * 1.4); }
+  .body h3{ font-size: calc(var(--fs, 14px) * 1.15); }
+  body[data-titleface="instrument"] .body :is(h2, h3){ font-weight: 400; font-style: italic; }
+  body[data-titleface="newsreader"] .body :is(h2, h3){ font-weight: 400; }
   .body em{ font-style: italic; }
 
   /* ---------- prose links ----------
@@ -310,9 +363,45 @@
   }
   figure.photo:hover figcaption .cap-zoom{ opacity: 1; color: var(--ink); }
 
+  /* ---------- abstract (frontmatter "abstract:") ---------- */
+  .ttl:has(+ .abstract){ margin-bottom: 20px; }
+  .abstract{
+    margin: 0 0 56px;
+    max-width: min(var(--body-ch, 48ch), 100%);
+    color: color-mix(in oklab, var(--ink) 78%, var(--bg));
+    font-size: calc(var(--fs, 14px) * 1.2);
+    line-height: 1.4;
+    text-wrap: pretty;
+  }
+
+  /* ---------- mermaid diagrams ---------- */
+  figure.diagram{
+    margin: 12px 0 36px;
+    padding: 24px 16px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--panel);
+    overflow-x: auto;
+  }
+  figure.diagram pre.mermaid{
+    margin: 0;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--mute);
+    white-space: pre;
+  }
+  figure.diagram pre.mermaid[data-rendered]{
+    display: flex;
+    justify-content: safe center; /* plain center clips the left edge of an overflowing diagram */
+    white-space: normal;
+  }
+  figure.diagram svg{ width: 100%; height: auto; }
+  /* diagrams may also use the sidenote column's width */
+  .body > figure.diagram{ grid-column: 1 / -1; }
+
   /* ---------- code blocks (IDE-style) ---------- */
   figure.ide{
-    margin: 32px 0 36px;
+    margin: 12px 0 36px; /* + the preceding paragraph's 1.2em ≈ 36px above */
     padding: 0;
     border: 1px solid var(--line);
     border-radius: 3px;
@@ -647,10 +736,20 @@
     .pane{ padding: 40px clamp(20px, 5vw, 44px) 64px; }
     .back{ margin-bottom: 32px; }
     .ttl{ margin-bottom: 32px; }
+    .abstract{ margin-bottom: 32px; }
     .pager{ margin-top: 64px; grid-template-columns: 1fr; gap: 20px; }
     .pager .next{ text-align: left; }
     .pager .next:hover{ transform: translateX(-4px); }
     figure.photo{ margin: 20px 0 28px; }
+  }
+
+  /* phones: keep the title > heading > abstract > body hierarchy when
+     the title itself shrinks to its 26px floor */
+  @media (max-width: 640px){
+    .body h2{ font-size: calc(var(--fs, 14px) * 1.25); }
+    .body h3{ font-size: calc(var(--fs, 14px) * 1.1); }
+    .abstract{ font-size: calc(var(--fs, 14px) * 1.12); }
+    figure.diagram{ padding: 16px 8px; }
   }
 
   @media (prefers-reduced-motion: reduce){
@@ -670,6 +769,7 @@
       <a class="back" href="/"><span class="arr">←</span><span>vuotogeometrico</span></a>
       <div class="meta" id="meta">February 14, 2020</div>
       <h1 class="ttl" id="ttl">Ruins of Consonno on damaged Fomapan 100</h1>
+
       <article class="body" id="body">
 <p><span class="sent">I visited the site of Consonno several times over the years.</span><span class="sent"> I believe the first time was in 2015 or thereabouts, and a second time a few years later; on both occasions I took digital photographs, first with a Pentax system and then with a Fujifilm one.</span><span class="sent"> A few years later, perhaps in 2019, I went back without any great expectations, carrying a 4×5-inch large-format camera.</span><span class="sent"> I say “without any great expectations” because I remember it being a swelteringly hot summer afternoon, I had some old Fomapan 100 film to use up, and I knew it was most likely damaged — so I could neither have nor wanted to travel somewhere farther away and more evocative, somewhere that would have deserved much better.</span></p>
 <figure class="photo" data-fig="0" style="--ratio:1756/2200"><div class="ph"><picture><source type="image/avif" srcset="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@640w.avif 640w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1024w.avif 1024w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1600w.avif 1600w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1756w.avif 1756w" sizes="(max-width: 1024px) 100vw, 60vw"><source type="image/webp" srcset="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@640w.webp 640w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1024w.webp 1024w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1600w.webp 1600w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1756w.webp 1756w" sizes="(max-width: 1024px) 100vw, 60vw"><img src="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002.jpg" srcset="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@640w.jpg 640w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1024w.jpg 1024w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1600w.jpg 1600w, /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@1756w.jpg 1756w" sizes="(max-width: 1024px) 100vw, 60vw" alt="The Minaret building, I" loading="lazy" /></picture></div><figcaption><span class="cap-title">The Minaret building, I</span><span class="cap-caption">Tilt-shift photograph of the Minaret, taken from what remains of the road that runs along its northern side</span><span class="cap-zoom">View ↗</span></figcaption></figure>
@@ -740,6 +840,7 @@
 <!-- ====================== FIGURE DATA ====================== -->
 <script id="figdata" type="application/json">[{"src":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002.jpg","title":"The Minaret building, I","caption":"Tilt-shift photograph of the Minaret, taken from what remains of the road that runs along its northern side","description":"The “minaret” is the most imposing building in the entire “city of toys”. At its centre stands a tower which, according to Mario Bagno, everyone would admire and remember. The structure takes its name from the resemblance of that tower to the one found in almost every mosque, from which the muezzin calls the faithful to prayer. On the ground floor there was a long shopping arcade with spaces used as shops, while the first and second floors contained a series of apartments of roughly 70 sqm each. In front of the complex stood a large fountain that produced dramatic jets of water.\n","tech":{"Camera":"4x5\" Field camera","Film":"Fomapan 100","Lens":"Rodenstock Sironar-N 210mm f/5.6","Aperture":"f/16","Developer":"Adox Rodinal"},"ratio":"1756/2200","img":{"widths":[640,1024,1600,1756],"avif":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@{w}w.avif","webp":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@{w}w.webp","fallback":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@{w}w.jpg"}},{"src":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003.jpg","title":"The Minaret building, II","caption":"The upper part of the Minaret, including the dome and tower, photographed from its own roof","description":"The “minaret” is the most imposing building in the entire “city of toys”. At its centre stands a tower which, according to Mario Bagno, everyone would admire and remember. The structure takes its name from the resemblance of that tower to the one found in almost every mosque, from which the muezzin calls the faithful to prayer. On the ground floor there was a long shopping arcade with spaces used as shops, while the first and second floors contained a series of apartments of roughly 70 sqm each. In front of the complex stood a large fountain that produced dramatic jets of water.\n","tech":{"Camera":"4x5\" Field camera","Film":"Fomapan 100","Lens":"Fujinon SW 125mm f/8","Aperture":"f/16","Developer":"Adox Rodinal"},"ratio":"1752/2200","img":{"widths":[640,1024,1600,1752],"avif":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@{w}w.avif","webp":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@{w}w.webp","fallback":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@{w}w.jpg"}},{"src":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_004.jpg","title":"A fountain","caption":"The concrete structure of a large fountain, barely visible among the brambles and wild vegetation that have covered much of the area over the decades.","description":"The concrete structure of a large fountain, barely visible among the brambles and wild vegetation that have covered much of the area over the decades. I don't remember exactly where I found this, nor if it's related to the Minaret.\n","tech":{"Camera":"4x5\" Field camera","Film":"Fomapan 100","Lens":"Rodenstock Sironar-N 210mm f/5.6","Aperture":"f/5.6","Developer":"Adox Rodinal"},"ratio":"1754/2200","img":{"widths":[640,1024,1600,1754],"avif":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_004@{w}w.avif","webp":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_004@{w}w.webp","fallback":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_004@{w}w.jpg"}},{"src":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_001.jpg","title":"Ruins near the entrance of the village","caption":"What remains of a water tank and an attached, unidentified building.","description":"Walking downhill along the area’s only access road, one eventually reaches the entrance — if it can really be called that — to the city of toys. The Minaret immediately comes into view on the left, while on the right are buildings I was unable to identify more precisely. The first of these is in this state, having been completely gutted over the years. A water cistern can be seen beside it, which I prudently kept my distance from.\n","tech":{"Camera":"4x5\" Field camera","Film":"Fomapan 100","Lens":"Schneider Super Angulon 75mm f/5.6","Aperture":"f/16","Developer":"Adox Rodinal"},"ratio":"2200/1750","img":{"widths":[640,1024,1600,2200],"avif":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_001@{w}w.avif","webp":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_001@{w}w.webp","fallback":"/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_001@{w}w.jpg"}}]</script>
 <script src="/assets/article.js"></script>
+
 
 </body>
 </html>

@@ -570,8 +570,11 @@
     place-items: center;
     cursor: zoom-out;
   }
+  /* explicit positive stacking: without it Chrome drops the backdrop blur
+     once the scrim's fade-in transition ends (blurred, then sharp again) */
   .modal .scrim{
     position: absolute; inset: 0;
+    z-index: 1;
     background: var(--scrim-bg, rgba(0,0,0,0.72));
     opacity: 0;
     transition: opacity .35s ease;
@@ -581,6 +584,7 @@
   .modal.open .scrim{ opacity: 1; }
   .modal-inner{
     position: relative;
+    z-index: 2;
     width: min(1400px, 94vw);
     height: min(820px, 88vh);
     display: grid;

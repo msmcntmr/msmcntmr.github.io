@@ -20,27 +20,81 @@ function themeVariables(){
   const ink = token('--ink', '#1a1410');
   const mute = token('--mute', '#9c9489');
   const line = token('--line', '#d8d0c2');
+  // the diagram sits on the article pane with no fill of its own; that pane is
+  // --bg normally and --panel when the reader swaps panels (shared.js), so the
+  // boxes take whichever of the two the pane is NOT, to stand out from it
+  // (computed custom properties come back resolved, e.g. "#ffffff")
+  const paneBg = token('--pane-left-bg', bg).toLowerCase();
+  const swapped = paneBg === panel.toLowerCase() || paneBg.includes('--panel');
+  const surface = swapped ? panel : bg;
+  const box = swapped ? bg : panel;
   return {
     fontFamily: token('--sans', 'Helvetica, sans-serif'),
     fontSize: '14px',
-    background: panel,
-    primaryColor: bg,
+    background: surface,
+    primaryColor: box,
     primaryTextColor: ink,
     primaryBorderColor: mute,
-    secondaryColor: panel,
-    tertiaryColor: panel,
+    secondaryColor: box,
+    tertiaryColor: surface,
     lineColor: mute,
     textColor: ink,
-    mainBkg: bg,
+    mainBkg: box,
     nodeBorder: mute,
-    clusterBkg: panel,
+    clusterBkg: surface,
     clusterBorder: line,
     titleColor: ink,
-    edgeLabelBackground: panel,
-    noteBkgColor: bg,
+    edgeLabelBackground: surface,
+    noteBkgColor: box,
     noteTextColor: ink,
-    noteBorderColor: line
+    noteBorderColor: line,
+    // xychart-beta: muted bars, ink line, on the pane's own colour
+    xyChart: {
+      backgroundColor: surface,
+      titleColor: ink,
+      xAxisLabelColor: ink, xAxisTitleColor: mute, xAxisTickColor: mute, xAxisLineColor: mute,
+      yAxisLabelColor: ink, yAxisTitleColor: mute, yAxisTickColor: mute, yAxisLineColor: mute,
+      plotColorPalette: `${mute}, ${ink}`
+    }
   };
+}
+
+// The site's diagram look, handed to mermaid as themeCSS so it is in place
+// when mermaid measures labels (CSS added afterwards would clip them).
+// Mermaid scopes every rule to the diagram's own id.
+function modernCSS(){
+  const bg = token('--bg', '#ece6dc');
+  const panel = token('--panel', '#ffffff');
+  const ink = token('--ink', '#1a1410');
+  const mute = token('--mute', '#9c9489');
+  const paneBg = token('--pane-left-bg', bg).toLowerCase();
+  const swapped = paneBg === panel.toLowerCase() || paneBg.includes('--panel');
+  const surface = swapped ? panel : bg;
+  const box = swapped ? bg : panel;
+  const mix = (a, pct, b) => `color-mix(in oklab, ${a} ${pct}%, ${b})`;
+  return `
+    /* boxes: soft fill, hairline edge, rounded */
+    .node rect, .node polygon, .node circle { rx: 8px; ry: 8px;
+      fill: ${mix(box, 70, surface)} !important;
+      stroke: ${mix(ink, 18, 'transparent')} !important; stroke-width: .75px !important; }
+    .nodeLabel, .nodeLabel p { font-size: 13px; color: ${ink}; }
+    /* groups: a faint tinted panel, no border, small spaced capitals */
+    .cluster rect { rx: 14px; ry: 14px; stroke: none !important;
+      fill: ${mix(ink, 4, 'transparent')} !important; }
+    .cluster-label, .cluster-label span, .cluster-label p, .cluster-label .nodeLabel {
+      font-size: 10.5px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase;
+      color: ${mute} !important; fill: ${mute} !important; }
+    /* connectors: thin, muted */
+    .flowchart-link { stroke: ${mix(ink, 32, 'transparent')} !important; stroke-width: 1px !important; }
+    marker path, .marker { fill: ${mix(ink, 45, 'transparent')} !important; stroke: none !important; }
+    .edgeLabel, .edgeLabel p, .edgeLabel span { font-size: 11.5px; font-style: italic; color: ${mute} !important; }
+    .edgeLabel rect, .labelBkg { fill: ${surface} !important; background: ${surface} !important; opacity: 1 !important; }
+    /* xychart: lighter bars so the ink line reads first */
+    [class^="bar-plot"] rect { fill: ${mix(mute, 45, surface)} !important; stroke: none !important; rx: 3px; ry: 3px; }
+    [class^="line-plot"] path { stroke-width: 2px !important; stroke-linejoin: round; stroke-linecap: round; }
+    .axis-line path, .axisl-line path, .ticks path { stroke: ${mix(ink, 25, 'transparent')} !important; stroke-width: 1px !important; }
+    .chart-title text { font-size: 13px !important; fill: ${mute} !important; }
+  `;
 }
 
 const phone = window.matchMedia('(max-width: 640px)');
@@ -48,18 +102,23 @@ let seq = 0;
 let lastKey = '';
 async function renderAll(){
   const vars = themeVariables();
-  const key = JSON.stringify(vars);
+  const themeCSS = modernCSS();
+  const key = JSON.stringify(vars) + themeCSS;
   if (key === lastKey) return;
   lastKey = key;
   mermaid.initialize({
     startOnLoad: false,
     theme: 'base',
     themeVariables: vars,
+    themeCSS,
     securityLevel: 'strict',
     // compact spacing: the article column is narrow, so every pixel of
     // layout width costs legibility once the SVG is scaled to fit
-    flowchart: { nodeSpacing: 16, rankSpacing: 40, padding: 12, diagramPadding: 8,
-                 subGraphTitleMargin: { top: 4, bottom: 10 } }
+    flowchart: { nodeSpacing: 16, rankSpacing: 40, padding: 14, diagramPadding: 8,
+                 curve: 'basis',
+                 subGraphTitleMargin: { top: 8, bottom: 12 } },
+    // sized for the text column (~520px) so charts never need to scroll
+    xyChart: { width: 520, height: 360, titlePadding: 8, titleFontSize: 15 }
   });
   for (const b of blocks){
     try {

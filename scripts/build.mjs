@@ -426,7 +426,16 @@ async function renderArticleBody(article, slugSet){
       };
     }
 
-    const ratio = it.ratio ? ` style="--ratio:${esc(String(it.ratio))}"` : '';
+    // Display width cap, in CSS px. `width:` in the :::image block wins;
+    // otherwise PNG screenshots/graphics are capped at half their pixel width,
+    // i.e. their native size on a 2x (retina) screen, so they are never
+    // stretched and text stays crisp. Photos keep filling the column.
+    const maxW = Number(it.width) > 0 ? Math.round(Number(it.width))
+      : (plan && plan.lossless ? Math.floor(plan.widths[plan.widths.length - 1] / 2) : 0);
+    delete it.width;
+    const figStyle = [it.ratio ? `--ratio:${esc(String(it.ratio))}` : '', maxW ? `max-width:${maxW}px` : '']
+      .filter(Boolean).join(';');
+    const ratio = figStyle ? ` style="${figStyle}"` : '';
     const toneStyle = it.tone ? ` style="--tone:${toneColorCss(it.tone)}"` : '';
     let inner;
     if (it.src && it.img){
@@ -512,6 +521,22 @@ async function renderArticleBody(article, slugSet){
       case 'html':
         parts.push(node.value);
         break;
+      case 'table': {
+        // GFM table; first row is the header, node.align gives per-column alignment
+        const cell = (tag, c, i) => {
+          const a = node.align && node.align[i];
+          return `<${tag}${a ? ` style="text-align:${a}"` : ''}>${inlineHtml(c.children, ctx)}</${tag}>`;
+        };
+        const [head, ...rows] = node.children;
+        parts.push(`<div class="table-wrap"><table>
+<thead><tr>${head.children.map((c, i) => cell('th', c, i)).join('')}</tr></thead>
+<tbody>
+${rows.map(r => `<tr>${r.children.map((c, i) => cell('td', c, i)).join('')}</tr>`).join('\n')}
+</tbody>
+</table></div>`);
+        emitSidenotes();
+        break;
+      }
       default:
         break;
     }
@@ -541,6 +566,13 @@ const ENCODE_OPTS = {
   jpeg: { quality: 82, mozjpeg: true },
   png: {}
 };
+// PNG sources are usually screenshots or graphics: keep every variant lossless
+const LOSSLESS_OPTS = {
+  avif: { lossless: true, effort: 4 },
+  webp: { lossless: true },
+  png: { compressionLevel: 9 }
+};
+const encodeOpts = (plan, format) => (plan.lossless ? LOSSLESS_OPTS : ENCODE_OPTS)[format];
 
 // per-source-image plan of which AVIF/WebP/fallback width-tiers to generate.
 // Pure metadata computation (no encoding) so both emitFigure (HTML/figdata)
@@ -557,12 +589,14 @@ async function planImageVariants(article, rel){
       if (!m.width || !m.height) return null;
       const [w, h] = (m.orientation || 1) >= 5 ? [m.height, m.width] : [m.width, m.height];
       const ratio = `${w}/${h}`;
-      const natWidth = Math.min(w, MAX_EDGE);
+      // MAX_EDGE caps the LONGEST edge, so a tall image's width shrinks with it
+      const natWidth = Math.round(w * Math.min(1, MAX_EDGE / Math.max(w, h)));
       const widths = [...new Set([...WIDTH_LADDER.filter(x => x <= natWidth), natWidth])].sort((a, b) => a - b);
       const ext = path.extname(rel).toLowerCase();
-      const fallbackFormat = ext === '.avif' ? 'avif' : ext === '.webp' ? 'webp' : (m.hasAlpha ? 'png' : 'jpeg');
+      const lossless = ext === '.png';
+      const fallbackFormat = ext === '.avif' ? 'avif' : ext === '.webp' ? 'webp' : (lossless || m.hasAlpha ? 'png' : 'jpeg');
       const formats = [...new Set(['avif', 'webp', fallbackFormat])];
-      return { ratio, widths, fallbackFormat, fallbackExt: FORMAT_EXT[fallbackFormat], formats };
+      return { ratio, widths, fallbackFormat, fallbackExt: FORMAT_EXT[fallbackFormat], formats, lossless };
     } catch { return null; }
   })();
   variantPlanCache.set(key, plan);
@@ -607,14 +641,16 @@ async function copyArticleAssets(article, outDir){
     await sharp(src)
       .rotate()
       .resize(MAX_EDGE, MAX_EDGE, { fit: 'inside', withoutEnlargement: true })
-      .toFormat(plan.fallbackFormat, ENCODE_OPTS[plan.fallbackFormat])
+      .toFormat(plan.fallbackFormat, encodeOpts(plan, plan.fallbackFormat))
       .toFile(path.join(outDirPath, `${baseName}.${plan.fallbackExt}`));
     for (const format of plan.formats){
       for (const width of plan.widths){
         await sharp(src)
           .rotate()
-          .resize(width, width, { fit: 'inside', withoutEnlargement: true })
-          .toFormat(format, ENCODE_OPTS[format])
+          // constrain width only: a (width × width) box would cap a portrait
+          // image by its height and serve "@902w" files that are 467px wide
+          .resize({ width, withoutEnlargement: true })
+          .toFormat(format, encodeOpts(plan, format))
           .toFile(path.join(outDirPath, `${baseName}@${width}w.${FORMAT_EXT[format]}`));
       }
     }

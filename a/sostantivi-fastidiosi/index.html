@@ -20,7 +20,7 @@
 <link rel="alternate" type="application/atom+xml" title="vuotogeometrico" href="https://msmcntmr.github.io/feed.xml" />
 <link rel="stylesheet" href="/assets/shared.css" />
 <script>
-  window.__SF_DEFAULTS = {"typeface":"geist","titleface":"ebgaramond","textSize":18,"leading":1.55,"columnRatio":57,"bodyWidth":72,"palette":"cool-gray","scrim":"light","hover":"underline","panels":"normal"};
+  window.__SF_DEFAULTS = {"typeface":"geist","titleface":"ebgaramond","textSize":18,"leading":1.55,"columnRatio":57,"bodyWidth":72,"palette":"warm-cream","scrim":"light","hover":"underline","panels":"swapped"};
 </script>
 <script src="/assets/shared.js"></script>
 <style>
@@ -141,6 +141,33 @@
     margin: 1.2em 0 2.4em;
   }
   .body hr + :is(h2, h3){ margin-top: 0; }
+
+  /* tables: scroll inside their own box on narrow screens */
+  .body .table-wrap{
+    margin: 12px 0 36px;
+    overflow-x: auto;
+  }
+  .body table{
+    width: 100%;
+    min-width: 30em; /* below this, scroll inside .table-wrap instead of crushing columns */
+    border-collapse: collapse;
+    font-size: calc(var(--fs, 14px) * 0.85);
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+  }
+  .body th, .body td{
+    padding: 8px 12px 8px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    text-align: left;
+  }
+  .body thead th{
+    font-weight: 500;
+    color: var(--mute);
+    border-bottom-color: color-mix(in oklab, var(--ink) 35%, transparent);
+  }
+  .body th:last-child, .body td:last-child{ padding-right: 0; }
+  .body td code{ white-space: nowrap; }
   /* endnotes: everything after a final rule + heading (heading keeps its size) */
   .body hr.endnotes-rule ~ :is(p, ul, ol, blockquote){
     font-size: calc(var(--fs, 14px) * 0.85);
@@ -377,10 +404,9 @@
   /* ---------- mermaid diagrams ---------- */
   figure.diagram{
     margin: 12px 0 36px;
-    padding: 24px 16px;
-    border: 1px solid var(--line);
-    border-radius: 3px;
-    background: var(--panel);
+    padding: 8px 0;
+    border: none;
+    background: transparent;
     overflow-x: auto;
   }
   figure.diagram pre.mermaid{
@@ -395,9 +421,7 @@
     justify-content: safe center; /* plain center clips the left edge of an overflowing diagram */
     white-space: normal;
   }
-  figure.diagram svg{ width: 100%; height: auto; }
-  /* diagrams may also use the sidenote column's width */
-  .body > figure.diagram{ grid-column: 1 / -1; }
+  figure.diagram svg{ width: 100%; height: auto; background: transparent !important; }
 
   /* ---------- code blocks (IDE-style) ---------- */
   figure.ide{
@@ -437,6 +461,10 @@
   figure.ide .ide-body{
     overflow-x: auto;
     padding: 12px 0;
+    /* one shared column as wide as the longest line (never narrower than the
+       box), so every row's stripe reaches the end when scrolled */
+    display: grid;
+    grid-template-columns: minmax(max-content, 1fr);
   }
   figure.ide .ln{
     display: grid;
@@ -450,11 +478,11 @@
   figure.ide .num{
     position: sticky;
     left: 0;
-    background: var(--row-bg);
+    /* opaque: it is sticky, so scrolled code passes underneath it */
+    background: linear-gradient(var(--row-bg), var(--row-bg)), var(--panel);
     text-align: right;
     padding: 0 14px 0 8px;
-    color: var(--mute);
-    opacity: .5;
+    color: color-mix(in oklab, var(--mute) 50%, var(--panel));
     user-select: none;
     font-variant-numeric: tabular-nums;
     border-right: 1px solid color-mix(in oklab, var(--line) 60%, transparent);

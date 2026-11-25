@@ -570,8 +570,11 @@
     place-items: center;
     cursor: zoom-out;
   }
+  /* explicit positive stacking: without it Chrome drops the backdrop blur
+     once the scrim's fade-in transition ends (blurred, then sharp again) */
   .modal .scrim{
     position: absolute; inset: 0;
+    z-index: 1;
     background: var(--scrim-bg, rgba(0,0,0,0.72));
     opacity: 0;
     transition: opacity .35s ease;
@@ -581,6 +584,7 @@
   .modal.open .scrim{ opacity: 1; }
   .modal-inner{
     position: relative;
+    z-index: 2;
     width: min(1400px, 94vw);
     height: min(820px, 88vh);
     display: grid;
@@ -827,8 +831,7 @@
 
     <div class="about">
       <p>Vuoto geometrico è l&#39;incubo ricorrente della mia dormiveglia infantile. È uno spazio senza confini, in cui una linea retta, seguita con gli occhi, accelera e collassa su sé stessa. O un cerchio che si restringe fino a diventare un punto, o si allarga fino a togliere il respiro.</p>
-      <p>Forse metamorfopsie in allucinazioni ipnagogiche.</p>
-      <p>Se vuoi dirmi che hai provato la stessa cosa, scrivimi pure. Per il resto, compongo fotografie, ogni tanto.</p>
+      <p>In questo angolo del web cerco di mettere insieme temi fotografici, e ogni tanto rigurgito qualche pensiero sul mondo del software o qualsiasi altra cosa mi passi per la testa.</p>
       <a class="email" href="mailto:msmcntmr@gmail.com">msmcntmr@gmail.com</a>
     </div>
 

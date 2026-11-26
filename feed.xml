@@ -4,7 +4,14 @@
   <link href="https://msmcntmr.github.io/" />
   <link href="https://msmcntmr.github.io/feed.xml" rel="self" />
   <id>https://msmcntmr.github.io/</id>
-  <updated>2026-08-27T00:00:00.000Z</updated>
+  <updated>2026-11-24T00:00:00.000Z</updated>
+  <entry>
+    <title>The Garlasco Case and the Building of an LLM Investigation Wiki</title>
+    <link href="https://msmcntmr.github.io/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/" />
+    <id>https://msmcntmr.github.io/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/</id>
+    <updated>2026-11-24T00:00:00.000Z</updated>
+    <summary>Part 1 — How the Garlasco LLM wiki was designed, operated, and where it started to break</summary>
+  </entry>
   <entry>
     <title>Sostantivi fastidiosi</title>
     <link href="https://msmcntmr.github.io/a/sostantivi-fastidiosi/" />

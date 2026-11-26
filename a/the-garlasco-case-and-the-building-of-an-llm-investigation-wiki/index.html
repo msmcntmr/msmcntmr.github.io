@@ -1,0 +1,1236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Garlasco Case and the Building of an LLM Investigation Wiki — vuotogeometrico</title>
+<meta name="description" content="Part 1 — How the Garlasco LLM wiki was designed, operated, and where it started to break" />
+<link rel="canonical" href="https://msmcntmr.github.io/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/" />
+<meta property="og:type" content="article" />
+<meta property="og:site_name" content="vuotogeometrico" />
+<meta property="og:title" content="The Garlasco Case and the Building of an LLM Investigation Wiki" />
+<meta property="og:description" content="Part 1 — How the Garlasco LLM wiki was designed, operated, and where it started to break" />
+<meta property="og:url" content="https://msmcntmr.github.io/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/" />
+<meta property="og:image" content="https://msmcntmr.github.io/assets/og-default.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="The Garlasco Case and the Building of an LLM Investigation Wiki" />
+<meta name="twitter:description" content="Part 1 — How the Garlasco LLM wiki was designed, operated, and where it started to break" />
+<meta name="twitter:image" content="https://msmcntmr.github.io/assets/og-default.png" />
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+<link rel="alternate" type="application/atom+xml" title="vuotogeometrico" href="https://msmcntmr.github.io/feed.xml" />
+<link rel="stylesheet" href="/assets/shared.css" />
+<script>
+  window.__SF_DEFAULTS = {"typeface":"geist","titleface":"ebgaramond","textSize":18,"leading":1.55,"columnRatio":57,"bodyWidth":72,"palette":"warm-cream","scrim":"light","hover":"underline","panels":"swapped"};
+</script>
+<script src="/assets/shared.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--fs, 14px);
+    line-height: var(--lh, 1.55);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    letter-spacing: -0.005em;
+  }
+  ::selection{ background: var(--ink); color: var(--panel); }
+  a{ color: inherit; text-decoration: none; }
+
+  /* ---------- layout ---------- */
+  .stage{
+    display: grid;
+    grid-template-columns: minmax(0, var(--col-l, 58fr)) minmax(340px, var(--col-r, 42fr));
+    min-height: 100vh;
+    transition: grid-template-columns .55s cubic-bezier(.2,.7,.2,1);
+  }
+  .pane{ padding: 88px clamp(40px, 6vw, 96px) 120px; }
+  .left{ background: var(--pane-left-bg, var(--bg)); transition: background-color .5s ease; }
+  .right{
+    background: var(--pane-right-bg, var(--panel));
+    position: sticky;
+    top: 0;
+    align-self: start;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding-bottom: 88px;
+    transition: background-color .5s ease;
+  }
+
+  /* ---------- reading rail: progress line in the article's right margin ----
+     A barely-there hairline, fixed to the viewport, sits past the sidenotes;
+     the part of the article on screen is drawn in ink over it. Short ticks mark the
+     chapters and darken once passed; the current chapter's title shows beside
+     its tick, and pointing near the rail lists every chapter.
+     article.js sets --seam-x from the article's right edge. Two-column
+     layout only. */
+  .seam{
+    --a: 0; --b: 0;                  /* 0..1 window on the rail, set by article.js */
+    --seam-pad: 32px;
+    --run: calc(100vh - 2 * var(--seam-pad));
+    position: fixed; left: var(--seam-x, -100px); top: 0;
+    width: 0; height: 100vh;
+    pointer-events: none;
+    z-index: 3;
+    opacity: 0;
+    transition: opacity .8s ease .2s;
+  }
+  .seam.on{ opacity: 1; }
+  /* the rail is ink at low strength, so it reads the same on white and
+     warm-cream (and if the reader swaps the two panes) */
+  /* track and segment share a mask that cuts a short gap at every chapter
+     tick, so the rail reads as one stretch per chapter (set by article.js) */
+  .seam-line{
+    position: absolute; left: -2px; top: 0;
+    width: 4px; height: 100vh;
+    -webkit-mask-image: var(--gaps, none);
+            mask-image: var(--gaps, none);
+  }
+  .seam-track, .seam-fill{
+    position: absolute; left: 1.5px; top: var(--seam-pad);
+    width: 1px;
+  }
+  .seam-track{ height: var(--run); background: color-mix(in oklab, var(--ink) 9%, transparent); }
+  /* the stretch of the article currently on screen; article.js moves its
+     two ends on springs, so it stretches while scrolling and settles back */
+  .seam-fill{
+    left: 1px; width: 2px; border-radius: 1px;
+    top: calc(var(--seam-pad) + var(--run) * var(--a));
+    height: calc(var(--run) * (var(--b) - var(--a)));
+    background: color-mix(in oklab, var(--ink) 55%, transparent);
+  }
+  .seam-ticks{ position: absolute; inset: 0; }
+  .seam-tick{
+    position: absolute; left: 0;
+    top: calc(var(--seam-pad) + var(--run) * var(--at));
+    width: 24px; height: 14px;
+    transform: translate(-50%, -50%);
+    padding: 0; border: 0; background: none; cursor: pointer;
+    pointer-events: auto;
+  }
+  .seam-tick::before{
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 9px; height: 1px; transform: translate(-50%, -50%);
+    background: color-mix(in oklab, var(--ink) 22%, transparent);
+    transition: background-color .4s ease, width .3s cubic-bezier(.2,.7,.2,1);
+  }
+  .seam-tick.passed::before{ background: color-mix(in oklab, var(--ink) 55%, transparent); }
+  .seam-tick:hover::before{ width: 15px; background: var(--ink); }
+  /* hover strip: pointing near the rail opens the full chapter list */
+  .seam-zone{
+    position: absolute; left: -26px; width: 52px; top: 0; height: 100vh;
+    pointer-events: auto;
+  }
+  /* chapter titles sit on the article side, right-aligned against the rail.
+     Closed: only the current chapter's title shows (article.js hides it while
+     it would cover article content). Open: every title, as a contents list. */
+  .seam-tick span{
+    position: absolute; right: 20px; top: 50%;
+    transform: translate(4px, calc(-50% + var(--dy, 0px)));
+    white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--title-font, inherit); font-weight: 500;
+    font-size: 14px; line-height: 1.3;
+    color: var(--mute);
+    background: var(--pane-left-bg, var(--bg));
+    padding: 2px 4px 2px 10px;
+    opacity: 0; pointer-events: none;
+    transition: opacity .25s ease, transform .3s cubic-bezier(.2,.7,.2,1), color .25s ease;
+  }
+  .seam-tick.passed span{ color: color-mix(in oklab, var(--ink) 70%, var(--mute)); }
+  .seam-tick.current span{ color: var(--ink); }
+  .seam-tick.current:not(.covered) span,
+  .seam.open .seam-tick span{ opacity: 1; transform: translate(0, calc(-50% + var(--dy, 0px))); }
+  .seam.open .seam-tick span{ pointer-events: auto; cursor: pointer; }
+  .seam.open .seam-tick span:hover{ color: var(--ink); }
+  /* in the list, the current chapter keeps the tick at full ink */
+  .seam-tick.current::before{ width: 13px; background: var(--ink); }
+  @media (max-width: 1024px){ .seam{ display: none; } }
+
+  /* ---------- mark ---------- */
+  .mark{
+    display: inline-block;
+    width: 32px; height: 32px;
+    color: var(--ink);
+    margin-bottom: 72px;
+    overflow: visible;
+  }
+  .mark svg{ display:block; width:100%; height:100%; overflow: visible; }
+
+  /* ---------- back nav ---------- */
+  .back{
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--fs, 14px);
+    color: var(--mute);
+    margin-bottom: 64px;
+    transition: color .35s ease;
+  }
+  .back .arr{
+    display: inline-block;
+    transition: transform .4s cubic-bezier(.2,.7,.2,1);
+  }
+  .back:hover{ color: var(--ink); }
+  .back:hover .arr{ transform: translateX(-4px); }
+
+  /* ---------- article meta + title ---------- */
+  .meta{
+    color: var(--mute);
+    font-size: var(--fs, 14px);
+    margin-bottom: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ttl{
+    font-family: var(--title-font, var(--sans));
+    font-weight: 500;
+    font-size: clamp(22px, 1.6vw + 12px, 30px);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 0 0 56px;
+    max-width: 22ch;
+    text-wrap: balance;
+  }
+  /* per-face nudges so each option reads at its best */
+  body[data-titleface="instrument"]   .ttl{ font-weight: 400; font-style: italic; letter-spacing: -0.002em; font-size: clamp(28px, 2vw + 14px, 40px); line-height: 1.1; }
+  body[data-titleface="newsreader"]   .ttl{ font-weight: 400; letter-spacing: -0.005em; font-size: clamp(26px, 1.9vw + 13px, 36px); line-height: 1.15; }
+  body[data-titleface="bricolage"]    .ttl{ font-weight: 600; letter-spacing: -0.02em; font-size: clamp(28px, 2vw + 14px, 40px); line-height: 1.05; font-variation-settings: "opsz" 96; }
+  body[data-titleface="ebgaramond"]   .ttl{ font-weight: 500; letter-spacing: 0; font-size: clamp(26px, 1.9vw + 13px, 36px); line-height: 1.18; }
+  body[data-titleface="grotesk"]      .ttl{ font-weight: 500; letter-spacing: -0.015em; }
+  body[data-titleface="syne"]         .ttl{ font-weight: 600; letter-spacing: -0.015em; }
+
+  /* ---------- body (grid: text + sidenotes) ---------- */
+  .body{
+    display: grid;
+    grid-template-columns: minmax(0, var(--body-ch, 48ch)) 160px;
+    column-gap: 48px;
+    align-items: start;
+    font-size: calc(var(--fs, 14px) + 1px);
+    line-height: var(--lh, 1.55);
+  }
+  /* everything flows in the text column; only sidenotes use column 2
+     (lists and rules used to auto-place into the 160px sidenote track) */
+  .body > :not(.sidenote){ grid-column: 1; }
+
+  .body ul, .body ol{
+    margin: 0 0 1.2em;
+    padding-left: 1.3em;
+    line-height: calc(var(--lh, 1.55) * 1.08);
+  }
+  .body li{ margin-bottom: .5em; padding-left: .2em; }
+  .body li::marker{ color: var(--mute); }
+  .body li a[href]{ overflow-wrap: anywhere; }
+  .body hr{
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 1.2em 0 2.4em;
+  }
+  .body hr + :is(h2, h3){ margin-top: 0; }
+
+  /* tables: scroll inside their own box on narrow screens */
+  .body .table-wrap{
+    margin: 12px 0 36px;
+    overflow-x: auto;
+  }
+  .body table{
+    width: 100%;
+    min-width: 30em; /* below this, scroll inside .table-wrap instead of crushing columns */
+    border-collapse: collapse;
+    font-size: calc(var(--fs, 14px) * 0.85);
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+  }
+  .body th, .body td{
+    padding: 8px 12px 8px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    text-align: left;
+  }
+  .body thead th{
+    font-weight: 500;
+    color: var(--mute);
+    border-bottom-color: color-mix(in oklab, var(--ink) 35%, transparent);
+  }
+  .body th:last-child, .body td:last-child{ padding-right: 0; }
+  .body td code{ white-space: nowrap; }
+  /* endnotes: everything after a final rule + heading (heading keeps its size) */
+  .body hr.endnotes-rule ~ :is(p, ul, ol, blockquote){
+    font-size: calc(var(--fs, 14px) * 0.85);
+  }
+  .body hr.endnotes-rule ~ :is(ul, ol) li{ margin-bottom: .35em; }
+  .body > .sidenote{ grid-column: 2; }
+  .sidenote a, .sidenote code{ overflow-wrap: anywhere; }
+  /* two-column layout: a note hangs beside its paragraph without making
+     the grid row taller (which opened gaps between sections); article.js
+     nudges a note down only if it would overlap the previous one */
+  @media (min-width: 1101px){
+    .body > .sidenote{
+      height: 0;
+      margin-bottom: 0;
+      overflow: visible;
+      position: relative;
+    }
+  }
+
+  .body p{
+    margin: 0 0 1.2em;
+    text-wrap: pretty;
+    line-height: calc(var(--lh, 1.55) * 1.08);
+  }
+  .body p:last-child{ margin-bottom: 0; }
+
+  .body blockquote{
+    margin: 0 0 1.2em;
+    padding: 2px 0 2px 20px;
+    border-left: 2px solid color-mix(in oklab, var(--ink) 28%, transparent);
+    font-style: italic;
+  }
+  .body blockquote em{ font-style: normal; }
+  .body blockquote > :last-child{ margin-bottom: 0; }
+  .body blockquote li:last-child{ margin-bottom: 0; }
+
+  /* section headings: same face as the article title, quieter than it */
+  .body h2, .body h3{
+    font-family: var(--title-font, var(--sans));
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0;
+    text-wrap: balance;
+    margin: 1.5em 0 0.7em; /* + the preceding paragraph's 1.2em */
+  }
+  .body h2{ font-size: calc(var(--fs, 14px) * 1.4); }
+  .body h3{ font-size: calc(var(--fs, 14px) * 1.15); }
+  body[data-titleface="instrument"] .body :is(h2, h3){ font-weight: 400; font-style: italic; }
+  body[data-titleface="newsreader"] .body :is(h2, h3){ font-weight: 400; }
+  .body em{ font-style: italic; }
+
+  /* ---------- prose links ----------
+     Resting: hairline rule at 30% ink, like the index entries.
+     Hover: an ink line sweeps in from the left over it. Painted with
+     background gradients (not ::after) so it survives line wraps. */
+  .body a[href]{
+    color: inherit;
+    text-decoration: none;
+    padding-bottom: 0.12em;
+    background-image:
+      linear-gradient(currentColor, currentColor),
+      linear-gradient(color-mix(in oklab, currentColor 30%, transparent),
+                      color-mix(in oklab, currentColor 30%, transparent));
+    background-repeat: no-repeat;
+    background-position: 0 100%, 0 100%;
+    background-size: 0% 1px, 100% 1px;
+    transition: background-size .45s cubic-bezier(.2,.7,.2,1);
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+  .body a[href]:hover,
+  .body a[href]:focus-visible{ background-size: 100% 1px, 100% 1px; }
+
+  /* the build marks outbound links target="_blank"; they get the arrow
+     used elsewhere on the site, so "leaves the page" is visible up front */
+  .body a[target="_blank"]::after{
+    content: "\2197";
+    display: inline-block;
+    font-size: .78em;
+    line-height: 1;
+    margin-left: .18em;
+    vertical-align: .15em;
+    color: var(--mute);
+    transform: translate(-1px, 1px);
+    transition: transform .35s cubic-bezier(.2,.7,.2,1), color .25s ease;
+  }
+  .body a[target="_blank"]:hover::after{
+    color: var(--ink);
+    transform: translate(0, 0);
+  }
+
+  /* footnote markers keep their own (underline-free) treatment */
+  .body sup.fn-ref a[href]{
+    background-image: none;
+    padding-bottom: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .body a[href], .body a[target="_blank"]::after{ transition: none; }
+  }
+
+  /* ---------- footnote markers ---------- */
+  sup.fn-ref{
+    font-size: 0.7em;
+    line-height: 0;
+    vertical-align: super;
+    padding: 0 1px 0 2px;
+  }
+  sup.fn-ref a{
+    color: var(--mute);
+    border-bottom: 1px solid transparent;
+    transition: color .2s ease, border-color .2s ease;
+    font-variant-numeric: tabular-nums;
+  }
+  sup.fn-ref a:hover,
+  sup.fn-ref a.is-hover{
+    color: var(--ink);
+  }
+
+  /* sentence wrappers (for highlight-on-footnote-hover) */
+  .body p .sent{
+    border-radius: 2px;
+    padding: 1px 2px;
+    margin: 0 -2px;
+    background-color: transparent;
+    box-shadow: inset 0 0 0 0 transparent;
+    transition: background-color .25s ease, box-shadow .25s ease;
+  }
+  .body p .sent.is-hover-sent{
+    background-color: color-mix(in oklab, var(--ink) 9%, transparent);
+  }
+
+  /* ---------- sidenotes ---------- */
+  .sidenote{
+    font-size: calc(var(--fs, 14px) / 2 + 5px); /* 16→13, 18→14, 20→15 */
+    line-height: 1.5;
+    color: var(--mute);
+    margin: 0 0 24px;
+    font-variant-numeric: tabular-nums;
+    padding-top: 4px;
+    border-top: 1px solid var(--line);
+    transition: color .25s ease, border-color .25s ease;
+  }
+  .sidenote .num{
+    display: inline-block;
+    margin-right: 6px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .sidenote.is-hover{ color: var(--ink); border-top-color: var(--ink); }
+
+  /* ---------- figures (images) ---------- */
+  figure.photo{
+    margin: 28px 0 36px;
+    padding: 0;
+    cursor: zoom-in;
+    display: block;
+  }
+  figure.photo .ph{
+    width: 100%;
+    aspect-ratio: var(--ratio, 4/3);
+    overflow: hidden;
+    position: relative;
+    background: var(--panel);
+    transition: transform .6s cubic-bezier(.2,.7,.2,1);
+  }
+  figure.photo:hover .ph{ transform: translateY(-2px); }
+  figure.photo .ph picture{ display: contents; }
+  figure.photo .ph img{
+    display: block; width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  figure.photo .ph.placeholder{
+    background:
+      repeating-linear-gradient(
+        135deg,
+        color-mix(in oklab, var(--ink) 6%, transparent) 0 1px,
+        transparent 1px 12px
+      ),
+      var(--tone, color-mix(in oklab, var(--panel) 80%, var(--ink) 4%));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  figure.photo .ph.placeholder .ph-label{
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--mute);
+    background: var(--panel);
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+  }
+  figure.photo figcaption{
+    margin-top: 14px;
+    /* scales with --fs but at HALF rate: 16→13, 18→14, 20→15 */
+    font-size: calc(var(--fs, 14px) / 2 + 5px);
+    line-height: 1.55;
+    color: var(--mute);
+    display: grid;
+    gap: 6px;
+    max-width: 60ch;
+  }
+  figure.photo figcaption .cap-title{
+    color: var(--ink);
+    font-size: calc(var(--fs, 14px) / 2 + 6px);
+  }
+  figure.photo figcaption .cap-caption{
+    font-style: italic;
+    text-wrap: pretty;
+  }
+  figure.photo figcaption .cap-zoom{
+    justify-self: start;
+    margin-top: 2px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: .55;
+    transition: opacity .25s ease, color .25s ease;
+  }
+  figure.photo:hover figcaption .cap-zoom{ opacity: 1; color: var(--ink); }
+
+  /* ---------- abstract (frontmatter "abstract:") ---------- */
+  .ttl:has(+ .abstract){ margin-bottom: 20px; }
+  .abstract{
+    margin: 0 0 56px;
+    max-width: min(var(--body-ch, 48ch), 100%);
+    color: color-mix(in oklab, var(--ink) 78%, var(--bg));
+    font-size: calc(var(--fs, 14px) * 1.2);
+    line-height: 1.4;
+    text-wrap: pretty;
+  }
+
+  /* ---------- mermaid diagrams ---------- */
+  figure.diagram{
+    margin: 12px 0 36px;
+    padding: 8px 0;
+    border: none;
+    background: transparent;
+    overflow-x: auto;
+  }
+  figure.diagram pre.mermaid{
+    margin: 0;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--mute);
+    white-space: pre;
+  }
+  figure.diagram pre.mermaid[data-rendered]{
+    display: flex;
+    justify-content: safe center; /* plain center clips the left edge of an overflowing diagram */
+    white-space: normal;
+  }
+  figure.diagram svg{ width: 100%; height: auto; background: transparent !important; }
+
+  /* ---------- code blocks (IDE-style) ---------- */
+  figure.ide{
+    margin: 12px 0 36px; /* + the preceding paragraph's 1.2em ≈ 36px above */
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--panel);
+    color: var(--ink);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: calc(var(--fs, 14px) / 2 + 5px); /* 16→13, 18→14, 20→15 */
+    line-height: 1.7;
+  }
+  figure.ide .ide-head{
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in oklab, var(--bg) 55%, var(--ink) 5%);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--mute);
+  }
+  figure.ide .ide-head .file{ color: var(--ink); }
+  figure.ide .ide-head .dot{
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--mute); opacity: .55;
+  }
+  figure.ide .ide-head .lang{
+    margin-left: auto;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 9.5px;
+  }
+  figure.ide .ide-body{
+    overflow-x: auto;
+    padding: 12px 0;
+    /* one shared column as wide as the longest line (never narrower than the
+       box), so every row's stripe reaches the end when scrolled */
+    display: grid;
+    grid-template-columns: minmax(max-content, 1fr);
+  }
+  figure.ide .ln{
+    display: grid;
+    grid-template-columns: 52px 1fr;
+    --row-bg: transparent;
+    background: var(--row-bg);
+    min-width: max-content;
+  }
+  figure.ide .ln:nth-child(even){ --row-bg: color-mix(in oklab, var(--panel) 98%, var(--ink) 2%); }
+  figure.ide .ln:hover{ --row-bg: color-mix(in oklab, var(--ink) 5%, transparent); }
+  figure.ide .num{
+    position: sticky;
+    left: 0;
+    /* opaque: it is sticky, so scrolled code passes underneath it */
+    background: linear-gradient(var(--row-bg), var(--row-bg)), var(--panel);
+    text-align: right;
+    padding: 0 14px 0 8px;
+    color: color-mix(in oklab, var(--mute) 50%, var(--panel));
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+    border-right: 1px solid color-mix(in oklab, var(--line) 60%, transparent);
+    z-index: 1;
+  }
+  figure.ide .src{
+    padding: 0 18px 0 16px;
+    white-space: pre;
+  }
+  /* syntax tokens — palette-driven where possible */
+  figure.ide .t-c{ color: color-mix(in oklab, var(--ink) 40%, transparent); font-style: italic; }
+  figure.ide .t-s{ color: oklch(0.50 0.10 145); }       /* string — moss green */
+  figure.ide .t-k{ color: var(--ink); font-weight: 600; }
+  figure.ide .t-n{ color: oklch(0.55 0.10 60); }        /* number — warm brown */
+  figure.ide .t-v{ color: oklch(0.50 0.13 250); }       /* identifier — steel blue */
+  figure.ide .t-t{ color: oklch(0.50 0.10 295); }       /* type — soft violet */
+
+  /* ---------- prev/next ---------- */
+  .pager{
+    margin-top: 96px;
+    padding-top: 28px;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .pager a{
+    display: block;
+    color: var(--mute);
+    font-size: var(--fs, 14px);
+    transition: color .35s ease, transform .4s cubic-bezier(.2,.7,.2,1);
+  }
+  .pager a:hover{ color: var(--ink); }
+  .pager .label{
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    opacity: .6;
+  }
+  .pager .next{ text-align: right; }
+  .pager .prev:hover{ transform: translateX(-4px); }
+  .pager .next:hover{ transform: translateX(4px); }
+  .pager .empty{ visibility: hidden; }
+
+  /* ---------- right pane (identity + about) ---------- */
+  .who .name{ font-weight: 500; font-size: var(--fs, 14px); }
+  .who .role{ font-weight: 400; font-size: var(--fs, 14px); color: var(--mute); }
+
+  .about{
+    max-width: 38ch;
+    font-size: var(--fs, 14px);
+    line-height: var(--lh, 1.55);
+  }
+  .about p{ margin: 0 0 16px; }
+  .about p:last-child{ margin-bottom: 0; }
+  .about .email{ display: inline-block; margin-top: 28px; position: relative; }
+  .about .email::after{
+    content:""; position:absolute; left:0; right:0; bottom:1px;
+    height:1px; background:currentColor; opacity:.35;
+    transition: opacity .35s ease;
+  }
+  .about .email:hover::after{ opacity: 1; }
+
+  /* ---------- entry stagger ---------- */
+  .fade > *{
+    opacity: 0;
+    transform: translateY(8px);
+    animation: rise .7s cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .fade > *:nth-child(1){ animation-delay: 20ms }
+  .fade > *:nth-child(2){ animation-delay: 100ms }
+  .fade > *:nth-child(3){ animation-delay: 180ms }
+  .fade > *:nth-child(4){ animation-delay: 260ms }
+  .fade > *:nth-child(5){ animation-delay: 340ms }
+  @keyframes rise{ to{ opacity:1; transform:none } }
+
+  /* ---------- fullscreen modal ---------- */
+  .modal[hidden]{ display:none; }
+  .modal{
+    position: fixed; inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    cursor: zoom-out;
+  }
+  /* explicit positive stacking: without it Chrome drops the backdrop blur
+     once the scrim's fade-in transition ends (blurred, then sharp again) */
+  .modal .scrim{
+    position: absolute; inset: 0;
+    z-index: 1;
+    background: var(--scrim-bg, rgba(0,0,0,0.72));
+    opacity: 0;
+    transition: opacity .35s ease;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .modal.open .scrim{ opacity: 1; }
+  .modal-inner{
+    position: relative;
+    z-index: 2;
+    width: min(1400px, 94vw);
+    height: min(820px, 88vh);
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    background: var(--panel);
+    box-shadow: 0 40px 80px -20px rgba(0,0,0,.4);
+    opacity: 0;
+    transform: translateY(12px) scale(.985);
+    transition: opacity .45s cubic-bezier(.2,.7,.2,1), transform .55s cubic-bezier(.2,.7,.2,1);
+    cursor: default;
+  }
+  .modal.open .modal-inner{ opacity: 1; transform: none; }
+
+  .modal-img{
+    background: color-mix(in oklab, var(--bg) 92%, var(--ink) 6%);
+    overflow: hidden;
+    position: relative;
+  }
+  .modal-img .ph:has(img){ cursor: zoom-in; }
+  .modal-img.panning .ph{ cursor: none; }
+  .modal-img .pan-hint{
+    position: absolute;
+    left: 14px; bottom: 14px;
+    z-index: 3;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: color-mix(in oklab, var(--panel) 86%, transparent);
+    padding: 6px 9px;
+    border: 1px solid var(--line);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity .35s ease, transform .35s ease;
+  }
+  .modal-img:hover .pan-hint{ opacity: 1; transform: none; }
+  .modal-img.panning .pan-hint{
+    opacity: 1; transform: none;
+    background: var(--ink);
+    color: var(--panel);
+    border-color: var(--ink);
+  }
+  .modal-img .pan-cursor{
+    position: absolute;
+    width: 26px; height: 26px;
+    border: 1px solid var(--panel);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.35);
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    transition: opacity .2s ease;
+    z-index: 4;
+    mix-blend-mode: difference;
+  }
+  .modal-img.panning .pan-cursor{ opacity: 1; }
+  .modal-img .ph{
+    width: 100%; height: 100%;
+    display: flex; align-items:center; justify-content:center;
+  }
+  .modal-img .ph picture{ display: contents; }
+  .modal-img .ph.placeholder{
+    background:
+      repeating-linear-gradient(
+        135deg,
+        color-mix(in oklab, var(--ink) 5%, transparent) 0 1px,
+        transparent 1px 14px
+      ),
+      var(--tone, color-mix(in oklab, var(--panel) 80%, var(--ink) 4%));
+  }
+  .modal-img .ph.placeholder .ph-label{
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mute);
+    background: var(--panel);
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+  }
+  .modal-img img{
+    width: 100%; height: 100%; object-fit: contain;
+    object-position: 50% 50%;
+    background: transparent;
+    transition: object-position .12s linear;
+  }
+  .modal-img.panning img{
+    object-fit: cover;
+    transition: none;
+  }
+
+  .modal-meta{
+    padding: 56px 56px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    color: var(--ink);
+  }
+  .modal-meta .eyebrow{
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mute);
+    margin-bottom: 24px;
+  }
+  .modal-meta h2{
+    font-weight: 500;
+    font-size: calc(var(--fs, 14px) / 2 + 14px); /* 16→22, 20→24 */
+    line-height: 1.25;
+    margin: 0 0 16px;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+  .modal-meta .caption{
+    margin: 0 0 24px;
+    color: var(--ink);
+    font-size: calc(var(--fs, 14px) / 2 + 7px); /* 16→15, 18→16, 20→17 */
+    line-height: 1.55;
+    font-style: italic;
+  }
+  .modal-meta .desc{
+    margin: 0 0 36px;
+    color: var(--ink);
+    font-size: calc(var(--fs, 14px) / 2 + 7px);
+    line-height: 1.65;
+  }
+  .modal-meta .desc p{
+    margin: 0 0 1em;
+    text-wrap: pretty;
+  }
+  .modal-meta .desc p:last-child{ margin-bottom: 0; }
+  .modal-meta dl.tech{
+    margin: auto 0 0;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 24px;
+    row-gap: 10px;
+    font-size: 12.5px;
+  }
+  .modal-meta dl.tech dt{
+    color: var(--mute);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 10.5px;
+    padding-top: 2px;
+  }
+  .modal-meta dl.tech dd{ margin: 0; }
+
+  @media (max-width: 1024px){
+    .modal-inner{
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(180px, 42vh) 1fr;
+      width: 94vw; height: 92vh;
+    }
+    .modal-meta{ padding: 24px; }
+    .modal-meta h2{ font-size: 20px; }
+    .modal-meta dl.tech{ margin-top: 16px; }
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1100px){
+    .body{
+      display: block;
+      max-width: min(var(--body-ch, 56ch), 100%);
+    }
+    .body > .sidenote{
+      display: block;
+      margin: -4px 0 18px;
+      padding: 8px 0 0;
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+    }
+  }
+
+  @media (max-width: 1024px){
+    .pane{ padding: 40px clamp(20px, 5vw, 44px) 64px; }
+    .back{ margin-bottom: 32px; }
+    .ttl{ margin-bottom: 32px; }
+    .abstract{ margin-bottom: 32px; }
+    .pager{ margin-top: 64px; grid-template-columns: 1fr; gap: 20px; }
+    .pager .next{ text-align: left; }
+    .pager .next:hover{ transform: translateX(-4px); }
+    figure.photo{ margin: 20px 0 28px; }
+  }
+
+  /* phones: keep the title > heading > abstract > body hierarchy when
+     the title itself shrinks to its 26px floor */
+  @media (max-width: 640px){
+    .body h2{ font-size: calc(var(--fs, 14px) * 1.25); }
+    .body h3{ font-size: calc(var(--fs, 14px) * 1.1); }
+    .abstract{ font-size: calc(var(--fs, 14px) * 1.12); }
+    figure.diagram{ padding: 16px 8px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation: none !important; transition: none !important; }
+    .fade > *{ opacity:1; transform:none; }
+  }
+</style>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"The Garlasco Case and the Building of an LLM Investigation Wiki","datePublished":"2026-11-24","description":"Part 1 — How the Garlasco LLM wiki was designed, operated, and where it started to break","url":"https://msmcntmr.github.io/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/","author":{"@type":"Person","name":"vuotogeometrico"},"image":"https://msmcntmr.github.io/assets/og-default.png"}</script>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ====================== LEFT — article ====================== -->
+  <section class="pane left">
+    <div class="seam" data-seam>
+      <div class="seam-line">
+        <div class="seam-track"></div>
+        <div class="seam-fill"></div>
+      </div>
+      <div class="seam-ticks"></div>
+    </div>
+    <div class="fade">
+      <a class="back" href="/"><span class="arr">←</span><span>vuotogeometrico</span></a>
+      <div class="meta" id="meta">November 24, 2026</div>
+      <h1 class="ttl" id="ttl">The Garlasco Case and the Building of an LLM Investigation Wiki</h1>
+<p class="abstract">Part 1 — How the Garlasco LLM wiki was designed, operated, and where it started to break</p>
+      <article class="body" id="body">
+<p><span class="sent">On the morning of 13 August 2007, Chiara Poggi, 26, was killed in her family&#39;s house on via Pascoli in Garlasco, a small town in the province of Pavia.</span><span class="sent"> Her boyfriend, Alberto Stasi, found the body.</span><span class="sent"> In December 2015 Italy&#39;s Supreme Court confirmed his conviction and a sixteen-year sentence.</span><span class="sent"> In 2025 a new investigation focused on another man, Andrea Sempio, and in November 2026 the Pavia prosecutor&#39;s office asked for him to be indicted as the sole perpetrator of the murder; a preliminary hearing is scheduled for 25 February 2027.</span><span class="sent"> A parallel inquiry examines the archiving of an earlier investigation.</span></p>
+<p><span class="sent" data-fns="1">I am not going to argue any of that here, that&#39;s out of scope<sup class="fn-ref"><a href="#fn-1" data-fn="1">1</a></sup>.</span><span class="sent"> What matters right here is the paper trail the case has produced over nineteen years, and what it does to a particular AI-managed software that tries to hold it.</span></p>
+<aside class="sidenote" id="fn-1" data-fn="1"><span class="num">1</span>Case facts are stated only at the level established by the judgments and by public reporting, and are included to explain why the corpus has the shape it has, not to argue the case.</aside>
+<p><span class="sent">That software is an investigation wiki maintained by a language model, and it is public, so you can browse <a href="https://msmcntmr.github.io/garlasco-llm-wiki/">what it has become</a> while you read.</span><span class="sent"> This first part is about how it started, from the idea and the design to the way a single document actually makes its way into it, and about the point where that first design began to break.</span></p>
+<h2>1. A case that does not fit in one head</h2>
+<p><span class="sent">When I think about Chiara Poggi’s murder, I cannot help but be reminded of a short novel by Leonardo Sciascia, <em>Una storia semplice</em>.</span><span class="sent"> Not only because the two stories bear astonishingly unsettling similarities — a connection that anyone following the case who has also read Sciascia’s work might well recognize — but also because both are, contrary to the title of the Sicilian author’s work, extraordinarily complex affairs.</span><span class="sent"> The Garlasco case is still open, and its record is large and adversarial.</span><span class="sent"> It includes five judgments and their motivations, expert reports, hearing transcripts, wiretaps, police filings, photographs, and continuous coverage from national and local press.</span><span class="sent"> It includes the same hour told two ways, the same footprint read differently by successive experts, a DNA sample consumed by testing in 2014 so that it can never be re-tested, a crime scene contaminated before it was secured, shoes seized nineteen hours late, and a computer whose clock is itself evidence.</span><span class="sent"> It includes names spelled inconsistently, witnesses who change their account, and a second investigation that disputes the first on time, dynamics, and motive.</span></p>
+<p><span class="sent">A person can follow one thread at a time, and a language model, although it reads much faster, cannot hold all of it at once either.</span><span class="sent"> On top of that, the usual architecture for &quot;chatting with your documents&quot; helps less than it seems: retrieval-augmented generation (RAG) picks the chunks that look most relevant to each question and asks the model to rebuild the answer from them, which is fine for a single lookup, but with a case like this one it means reconstructing the same context (the same people, the same chronology, the same competing accounts of the same morning) every single time, without anything being kept from one question to the next.</span></p>
+<p><span class="sent">So one day I found myself wondering: &quot;What if I tried to have an LLM organize all the textual material related to the case?</span><span class="sent"> How much autonomy could it achieve?&quot;</span><span class="sent"> and then: &quot;How would it extract the information?</span><span class="sent"> Could I query the AI agent to get answers to complex questions in a matter of seconds?</span><span class="sent"> Could it even produce estimates of the protagonists&#39; likelihood of being guilty?&quot;.</span><span class="sent"> What I had in mind, really, was a kind of memory, a case file that would become more structured with every document added to it, and that would keep its contradictions instead of smoothing them over.</span><span class="sent"> To be honest, though, the idea of an artificial mind suggesting ideas and proposing solutions was tempting.</span></p>
+<h2>2. Not RAG: the pattern behind the project</h2>
+<p><span class="sent" data-fns="2">The starting point was an idea file by Andrej Karpathy, published as a gist titled <code>llm-wiki</code><sup class="fn-ref"><a href="#fn-2" data-fn="2">2</a></sup> and deliberately written to be pasted into an agent harness such as Claude Code, Codex or OpenCode.</span><span class="sent"> Its argument is simple, and once you have run into the problem yourself it feels almost obvious:</span></p>
+<aside class="sidenote" id="fn-2" data-fn="2"><span class="num">2</span>Andrej Karpathy, <a href="https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f" target="_blank" rel="noopener noreferrer"><code>llm-wiki</code></a>, a GitHub gist.</aside>
+<blockquote><p>Most people&#39;s experience with LLMs and documents looks like RAG: you upload a collection of files, the LLM retrieves relevant chunks at query time, and generates an answer. This works, but the LLM is rediscovering knowledge from scratch on every question. There&#39;s no accumulation.</p></blockquote>
+<p><span class="sent">The alternative it proposes is to let the model maintain a wiki, that is, a directory of interlinked markdown files sitting between the raw sources and the questions.</span><span class="sent"> Whenever a new source arrives, the model reads it, extracts what matters, updates the pages of the people and places it mentions, puts the dated events in the right place, flags where the new material contradicts the old, and writes down what it did in a log, so that the knowledge is compiled once and then kept up to date instead of being rediscovered every time.</span></p>
+<p><span class="sent">Karpathy&#39;s gist describes three layers (the immutable raw sources, the wiki maintained by the LLM, and a schema document such as <code>AGENTS.md</code> that tells the model how the wiki is structured and which workflows to follow) and three operations: ingest, query and lint.</span><span class="sent"> It also contains the sentence that made the whole thing click for me:</span></p>
+<blockquote><p>Obsidian<sup class="fn-ref"><a href="#fn-3" data-fn="3">3</a></sup> is the IDE; the LLM is the programmer; the wiki is the codebase.</p></blockquote>
+<aside class="sidenote" id="fn-3" data-fn="3"><span class="num">3</span><a href="https://obsidian.md" target="_blank" rel="noopener noreferrer">Obsidian</a> is a note-taking app that works on a folder of plain Markdown files on your own disk, and shows the links between them as a navigable graph. Here it is the window through which a human reads, and occasionally edits, the wiki the model writes.</aside>
+<p><span class="sent">In one line, it describes how the work is split: the human curates the sources, sets the direction and judges the result, while the model takes care of the bookkeeping that people usually give up on.</span><span class="sent"> Karpathy then explains why wikis tend to die, and I want to quote this part carefully, because the failure I describe later on started right here:</span></p>
+<blockquote><p>Humans abandon wikis because the maintenance burden grows faster than the value. LLMs don&#39;t get bored, don&#39;t forget to update a cross-reference, and can touch 15 files in one pass. The wiki stays maintained because the cost of maintenance is near zero.</p></blockquote>
+<p><span class="sent">I would argue that last statement is rather naive — or, perhaps more accurately, conveniently superficial.</span><span class="sent"> The cost may well be close to zero for a single edit, but across a whole corpus the arithmetic stops working, and the gap between those two scales turned out to be the real engineering problem of the project.</span></p>
+<p><span class="sent">The gist is abstract on purpose: it says that the directory structure, the page formats and the schema conventions depend on the domain, and that the right way to use it is to hand it to an agent and build a version that fits.</span><span class="sent"> For a criminal case, building that version turned out to be most of the work.</span></p>
+<h2>3. Writing my own idea file</h2>
+<p><span class="sent">Before creating a single folder, I rewrote the gist for the job I had in mind, and the result is a document called <code>LLM Investigation Wiki.md</code>.</span><span class="sent"> It is still an idea file, meant to be pasted into an agent and describing a pattern rather than an implementation, but every paragraph of it is bent towards this one case, as its opening makes clear:</span></p>
+<blockquote><p>When a new source is added, the LLM should not merely index it for later retrieval. It should read it, extract relevant facts, identify entities, connect it to existing events, update the case timeline, revise suspect or witness pages, add or refine hypotheses, and explicitly mark contradictions, uncertainty, and open questions. The resulting wiki is not a general knowledge base. It is a living case file.</p></blockquote>
+<p><span class="sent">A personal wiki can afford to be a bit loose: if a page about a book you read is slightly wrong, you fix it whenever you notice.</span><span class="sent"> A case file cannot, because the difference between &quot;a witness said X&quot; and &quot;X is true&quot; is precisely what it is there for, and that is why the document spends most of its length on discipline.</span><span class="sent"> It sets out eight principles, four of which carry most of the design:</span></p>
+<blockquote><ol>
+<li><strong>Raw sources are immutable.</strong> Original files are never edited by the LLM. They are the source record.</li>
+<li><strong>Every important claim should be traceable.</strong> Wiki pages should cite the source documents or source excerpts they depend on.</li>
+<li><strong>Facts, claims, and hypotheses must be distinct.</strong> A witness statement is not the same as a verified event. A theory is not the same as evidence.</li>
+<li><strong>Contradictions should be preserved, not flattened.</strong> If two sources disagree, the wiki should represent that disagreement explicitly.</li>
+</ol></blockquote>
+<p><span class="sent">It then asks that every meaningful statement fall into one of five categories (what a source says, what the evidence directly supports, what is inferred, what is only a hypothesis, and what is unknown), and that pages make that category visible instead of &quot;collapsing everything into a single narrative voice&quot;.</span><span class="sent"> And since the subject is a homicide involving real people, it closes with a few rules of conduct:</span></p>
+<blockquote><ul>
+<li>Never invent evidence, names, dates, motives, or relationships.</li>
+<li>Preserve conflicting versions instead of force-fitting them into a single story.</li>
+<li>Prefer &quot;insufficient evidence,&quot; &quot;unclear,&quot; or &quot;unverified&quot; over unsupported certainty.</li>
+<li>Avoid turning analytical suspicion into factual accusation.</li>
+</ul></blockquote>
+<p><span class="sent">What the file leaves out is just as deliberate, since there are no fixed templates, no final folder layout and no tooling in it: all of that was meant to come out of a conversation with the agent.</span><span class="sent"> So I pasted it into Claude Code, and together we turned it into a design specification, whose first paragraph names the audience I was really designing for:</span></p>
+<blockquote><p>The primary audience is LLMs: the wiki must enable them to organize sources, extract relevant data, traverse connections, formulate hypotheses, and provide investigative direction. Human investigators use the same vault for browsing and visual analysis.</p></blockquote>
+<p><span class="sent">The specification became an implementation plan, carried out one task at a time: the directory layout, the operating manual, the templates, the indexes.</span><span class="sent"> The idea file, the specification and the plan went into the repository together, and the first source followed the same day.</span></p>
+<p><span class="sent">If you want to try this on a subject of your own, I would keep the same order, because the idea file is where you decide what the wiki is <em>for</em>: everything the agent builds afterwards inherits those decisions, and arguing about a principle in a text file is much cheaper than arguing about a convention that has already spread across four hundred pages.</span></p>
+<h2>4. From idea file to vault</h2>
+<p><span class="sent">The vault that came out of that first day is made of three layers, plus a few files that tell the model how to work on them.</span></p>
+<figure class="diagram"><pre class="mermaid">flowchart TB
+    subgraph RAW["raw/ — immutable"]
+        direction LR
+        A1[articles]
+        A2[documents]
+        A3[transcripts]
+        A4[datasets and media]
+    end
+    subgraph SCHEMA["operating schema"]
+        direction LR
+        S1[AGENTS.md]
+        S2[workflow files]
+        S3[templates/]
+    end
+    subgraph WIKI["wiki/ — LLM-maintained"]
+        direction LR
+        W1[sources]
+        W2[people and locations]
+        W3[evidence and events]
+        W4[hypotheses and contradictions]
+        W5[leads and reports]
+        W6[overview and timeline]
+    end
+    RAW --&gt;|ingest| WIKI
+    SCHEMA --&gt;|governs every session| WIKI
+    WIKI --&gt;|query| R[report]
+    R --&gt;|filed back| WIKI</pre></figure>
+<p><span class="sent"><code>raw/</code> mirrors the source material by type (articles, court documents, transcripts, datasets, media) and works as a sort of evidence locker, since nothing in it is ever edited.</span><span class="sent"> <code>wiki/</code> is where the synthesis happens, with one directory per page type, while the schema is made of <code>AGENTS.md</code>, the first file every session reads, plus a template for each page type and one workflow file for each operation: ingest, query and audit.</span></p>
+<figure class="photo static" style="--ratio:902/1744;max-width:451px"><div class="ph"><picture><source type="image/avif" srcset="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/vault-directory-list@640w.avif 640w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/vault-directory-list@902w.avif 902w" sizes="(max-width: 1024px) 100vw, 60vw"><source type="image/webp" srcset="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/vault-directory-list@640w.webp 640w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/vault-directory-list@902w.webp 902w" sizes="(max-width: 1024px) 100vw, 60vw"><img src="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/vault-directory-list.png" srcset="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/vault-directory-list@640w.png 640w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/vault-directory-list@902w.png 902w" sizes="(max-width: 1024px) 100vw, 60vw" alt="The vault in Obsidian" loading="lazy" /></picture></div><figcaption><span class="cap-title">The vault in Obsidian</span><span class="cap-caption">The vault as it looks today. raw/, wiki/, templates/, categories/ and the control files are the first design; claims/, crawler/ and legacy/ came later, and belong to Part 2.</span></figcaption></figure>
+<p><span class="sent">Two decisions taken in the specification ended up shaping everything else.</span><span class="sent"> The first was to use two languages on purpose: frontmatter keys and values are in English, while the body text and the section headings are in Italian.</span><span class="sent"> The sources are Italian, the case is Italian, and so was the reader I had in mind, but keeping the metadata in English meant that scripts, filters and any future tooling would not have to deal with accents and translations.</span></p>
+<p><span class="sent">The second was to make the wiki a git repository, so that every ingest is a commit, every page has a history, and the state of the case at any point in time can be reconstructed exactly.</span><span class="sent"> For something meant to support an investigation, that property is part of the argument, and it is also the reason why in this article I can quote the wiki as it was at the very beginning: everything below comes from the repository&#39;s history.</span></p>
+<h2>5. Anatomy of a page</h2>
+<p><span class="sent">The wiki is organized around the kind of question each page is supposed to answer.</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Page type</th><th>The question it answers</th></tr></thead>
+<tbody>
+<tr><td>Case overview</td><td>What is the state of the case, in one narrative?</td></tr>
+<tr><td>Timeline</td><td>When did it happen, and in what order?</td></tr>
+<tr><td>Person</td><td>Who is this, and what did they do or say?</td></tr>
+<tr><td>Location</td><td>Where, and why does it matter?</td></tr>
+<tr><td>Evidence</td><td>What is this object, where does it come from, what does it show?</td></tr>
+<tr><td>Event</td><td>What happened on this occasion?</td></tr>
+<tr><td>Hypothesis</td><td>Which explanation does the evidence support, and what would break it?</td></tr>
+<tr><td>Contradiction</td><td>Where exactly do two sources disagree?</td></tr>
+<tr><td>Lead</td><td>What is still unknown, and what would resolve it?</td></tr>
+<tr><td>Source</td><td>What does this document actually say, and how reliable is it?</td></tr>
+<tr><td>Report</td><td>What did we conclude from a question, and on what basis?</td></tr>
+</tbody>
+</table></div>
+<p><span class="sent">Each type has its own template, and the templates matter more than they seem, because they are the contract that makes the wiki readable by a machine.</span><span class="sent"> This is the person template exactly as it was committed on the first day (the <code>&lt;% … %&gt;</code> tag belongs to Templater, the Obsidian plugin that fills in today&#39;s date when a human creates a page by hand):</span></p>
+<figure class="ide" data-lang="markdown">
+<div class="ide-head"><span class="dot"></span><span class="file">templates/person.md</span><span class="lang">Markdown</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src"><span class="t-c">---</span></span></div>
+<div class="ln"><span class="num">2</span><span class="src"><span class="t-v">type</span>: person</span></div>
+<div class="ln"><span class="num">3</span><span class="src"><span class="t-v">case_id</span>: garlasco-2007</span></div>
+<div class="ln"><span class="num">4</span><span class="src"><span class="t-v">role</span>: unknown # options: victim | suspect | witness | investigator | associate | other</span></div>
+<div class="ln"><span class="num">5</span><span class="src"><span class="t-v">status</span>: unknown # options: active | deceased | unknown</span></div>
+<div class="ln"><span class="num">6</span><span class="src"><span class="t-v">confidence</span>: unknown # options: verified | claimed | inferred | speculative | unknown</span></div>
+<div class="ln"><span class="num">7</span><span class="src"><span class="t-v">aliases</span>: []</span></div>
+<div class="ln"><span class="num">8</span><span class="src"><span class="t-v">sources</span>: []</span></div>
+<div class="ln"><span class="num">9</span><span class="src"><span class="t-v">related_people</span>: []</span></div>
+<div class="ln"><span class="num">10</span><span class="src"><span class="t-v">related_locations</span>: []</span></div>
+<div class="ln"><span class="num">11</span><span class="src"><span class="t-v">related_events</span>: []</span></div>
+<div class="ln"><span class="num">12</span><span class="src"><span class="t-v">related_evidence</span>: []</span></div>
+<div class="ln"><span class="num">13</span><span class="src"><span class="t-v">last_updated</span>: &lt;% tp.date.now("YYYY-MM-DD") %&gt;</span></div>
+<div class="ln"><span class="num">14</span><span class="src"><span class="t-v">tags</span>: []</span></div>
+<div class="ln"><span class="num">15</span><span class="src"><span class="t-c">---</span></span></div>
+<div class="ln"><span class="num">16</span><span class="src">​</span></div>
+<div class="ln"><span class="num">17</span><span class="src"><span class="t-k">## Profilo</span></span></div>
+<div class="ln"><span class="num">18</span><span class="src">​</span></div>
+<div class="ln"><span class="num">19</span><span class="src"><span class="t-k">## Ruolo nel caso</span></span></div>
+<div class="ln"><span class="num">20</span><span class="src">​</span></div>
+<div class="ln"><span class="num">21</span><span class="src"><span class="t-k">## Azioni e presenze nella timeline</span></span></div>
+<div class="ln"><span class="num">22</span><span class="src">​</span></div>
+<div class="ln"><span class="num">23</span><span class="src"><span class="t-k">## Dichiarazioni attribuite</span></span></div>
+<div class="ln"><span class="num">24</span><span class="src">​</span></div>
+<div class="ln"><span class="num">25</span><span class="src"><span class="t-k">## Prove associate</span></span></div>
+<div class="ln"><span class="num">26</span><span class="src">​</span></div>
+<div class="ln"><span class="num">27</span><span class="src"><span class="t-k">## Domande aperte</span></span></div>
+<div class="ln"><span class="num">28</span><span class="src">​</span></div>
+<div class="ln"><span class="num">29</span><span class="src"><span class="t-k">## Note di affidabilità</span></span></div>
+</div>
+</figure>
+<p><span class="sent">The block between the two <code>---</code> lines is data, which Obsidian shows as a panel of properties and scripts read as YAML.</span><span class="sent"> The headings below it (profile, role in the case, actions and appearances in the timeline, attributed statements, associated evidence, open questions, reliability notes) are fixed, and the same goes for every other page type.</span><span class="sent"> I preferred pages that all look alike to pages that are pleasant to read, because when every evidence page has the same shape, a model can find the chain-of-custody section without being told where it is.</span></p>
+<figure class="photo static" style="--ratio:1338/2098;max-width:669px"><div class="ph"><picture><source type="image/avif" srcset="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/people-frontmatter@640w.avif 640w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/people-frontmatter@1024w.avif 1024w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/people-frontmatter@1338w.avif 1338w" sizes="(max-width: 1024px) 100vw, 60vw"><source type="image/webp" srcset="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/people-frontmatter@640w.webp 640w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/people-frontmatter@1024w.webp 1024w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/people-frontmatter@1338w.webp 1338w" sizes="(max-width: 1024px) 100vw, 60vw"><img src="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/people-frontmatter.png" srcset="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/people-frontmatter@640w.png 640w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/people-frontmatter@1024w.png 1024w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/people-frontmatter@1338w.png 1338w" sizes="(max-width: 1024px) 100vw, 60vw" alt="A person page&#39;s properties" loading="lazy" /></picture></div><figcaption><span class="cap-title">A person page&#39;s properties</span><span class="cap-caption">The frontmatter of an investigator&#39;s page as Obsidian renders it today. Apart from the short description and the note under the date, both added later, these are the fields of the first template, filled in.</span></figcaption></figure>
+<p><span class="sent">Confidence shows up twice, once as a field and once inside the text.</span><span class="sent"> The <code>confidence</code> field takes one of five values: <code>verified</code> (directly supported by a primary source), <code>claimed</code> (stated by a witness, an article or a party, attributed but not confirmed), <code>inferred</code> (reasoned from multiple facts), <code>speculative</code> (an explicit hypothesis) and <code>unknown</code> (a gap).</span><span class="sent"> Source pages also carry a second scale, <code>reliability</code>, which is independent from the first and rates the article itself, since even a careful outlet can pass along a witness&#39;s unconfirmed claim.</span></p>
+<p><span class="sent">Inside the text, the five categories from the idea file became inline labels: <code>[FATTO]</code> (fact), <code>[DICHIARAZIONE]</code> (statement), <code>[INFERENZA]</code> (inference), <code>[IPOTESI]</code> (hypothesis) and <code>[SCONOSCIUTO]</code> (unknown).</span><span class="sent"> They are not pretty to look at, but I think they are the most useful convention in the whole project, because they force every sentence that looks like a fact to declare what kind of fact it really is.</span><span class="sent"> Here is part of Alberto Stasi&#39;s page as the first ingest wrote it:</span></p>
+<figure class="ide" data-lang="markdown">
+<div class="ide-head"><span class="dot"></span><span class="file">wiki/people/alberto-stasi.md</span><span class="lang">Markdown</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src"><span class="t-k">## Dichiarazioni attribuite</span></span></div>
+<div class="ln"><span class="num">2</span><span class="src">​</span></div>
+<div class="ln"><span class="num">3</span><span class="src"><span class="t-k">-</span> [DICHIARAZIONE] Afferma di aver trovato il corpo di Chiara entrando nella villetta e di aver attraversato corridoi sporchi di sangue.</span></div>
+<div class="ln"><span class="num">4</span><span class="src"><span class="t-k">-</span> [DICHIARAZIONE] Dichiara di aver lavorato alla tesi sul suo computer nella mattinata del delitto.</span></div>
+<div class="ln"><span class="num">5</span><span class="src">​</span></div>
+<div class="ln"><span class="num">6</span><span class="src"><span class="t-k">## Prove associate</span></span></div>
+<div class="ln"><span class="num">7</span><span class="src">​</span></div>
+<div class="ln"><span class="num">8</span><span class="src"><span class="t-k">-</span> [FATTO] Computer: uso accertato 9:35–12:20 — [[wiki/evidence/computer-stasi]]</span></div>
+<div class="ln"><span class="num">9</span><span class="src"><span class="t-k">-</span> [CONTESTATO] Scarpe prive di tracce ematiche dopo ~19 ore — [[wiki/evidence/scarpe-stasi]]</span></div>
+<div class="ln"><span class="num">10</span><span class="src"><span class="t-k">-</span> [CONTESTATO] Pedali bicicletta bordeaux con tracce biologiche di Chiara — [[wiki/evidence/pedali-biciclette-stasi]]</span></div>
+</div>
+</figure>
+<p><span class="sent">His statements, that he found the body and walked through blood-stained corridors and that he spent the morning working on his thesis, are labelled as statements, while the computer&#39;s activity from 9:35 to 12:20, established by forensic analysis, is labelled as a fact.</span><span class="sent"> And then there is <code>[CONTESTATO]</code> (&quot;contested&quot;), used for the shoes without blood and for the bicycle pedals: a perfectly reasonable label, except that it is not in the schema, because on the very first ingest the model made up a sixth category when none of the five seemed to fit.</span><span class="sent"> Looking back, that small improvisation already contained most of what this article is about.</span><span class="sent"> The page has grown a lot since then, and you can read <a href="https://msmcntmr.github.io/garlasco-llm-wiki/wiki/people/alberto-stasi">its current version</a> on the public wiki.</span></p>
+<p><span class="sent">Contradictions get pages of their own.</span><span class="sent"> When two sources disagree, the disagreement is written down in a separate file with a fixed shape: a description of the conflict, version A, version B, the possible explanations and a resolution status.</span><span class="sent"> The first ingest produced four of them.</span><span class="sent"> The one on <a href="https://msmcntmr.github.io/garlasco-llm-wiki/wiki/contradictions/ora-del-delitto">the time of death</a> sets the original autopsy estimate, between 10:30 and 13:00, against the window used by the courts that convicted Stasi, between 9:12 and 9:35, that is between the last time the house alarm was switched off and the moment Stasi&#39;s computer started being used continuously.</span><span class="sent"> It also notes that the morgue had no scale, so the body was never weighed, lists three possible explanations, and leaves the question open, which is the only honest status it can have.</span></p>
+<p><span class="sent">The timeline is what holds everything together.</span><span class="sent"> It has its own entry format, which works like a small version of the case model, since every entry names its participants, its place, its sources, its confidence and any conflict it is involved in.</span><span class="sent"> This is one of the thirty-two entries written by the first ingest:</span></p>
+<figure class="ide" data-lang="markdown">
+<div class="ide-head"><span class="dot"></span><span class="file">wiki/timeline/master-timeline.md</span><span class="lang">Markdown</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src"><span class="t-k">### ~2007-08-13 09:12 / ~2007-08-13 09:35 — Finestra temporale dell'omicidio (sentenze appello/Cassazione)</span></span></div>
+<div class="ln"><span class="num">2</span><span class="src"><span class="t-k">-</span> <span class="t-k">**Partecipanti**</span>: [[wiki/people/chiara-poggi]]</span></div>
+<div class="ln"><span class="num">3</span><span class="src"><span class="t-k">-</span> <span class="t-k">**Luogo**</span>: [[wiki/locations/via-pascoli-garlasco]]</span></div>
+<div class="ln"><span class="num">4</span><span class="src"><span class="t-k">-</span> <span class="t-k">**Fonti**</span>: [[wiki/sources/2026-04-22--delitto-di-garlasco]]</span></div>
+<div class="ln"><span class="num">5</span><span class="src"><span class="t-k">-</span> <span class="t-k">**Confidenza**</span>: inferred</span></div>
+<div class="ln"><span class="num">6</span><span class="src"><span class="t-k">-</span> <span class="t-k">**Note**</span>: stima basata su dati indiretti (antifurto + computer Stasi); contraddetta dalla stima autoptica originale</span></div>
+</div>
+</figure>
+<p><span class="sent">The <code>~</code> marks an approximate time and the slash a range, the confidence is <code>inferred</code>, and the note explains why: it is an estimate built on indirect data, and the autopsy contradicts it.</span><span class="sent"> The double brackets are Obsidian links, so every entry also adds a few edges to the graph.</span><span class="sent"> A timeline that could not express approximation and disagreement would flatten a case like this one into a simple story, which is exactly what it is not.</span></p>
+<h2>6. Following one source in</h2>
+<p><span class="sent">The first document I gave the wiki was the Italian Wikipedia article on the case, a secondary source covering everything from 2007 to late 2025.</span><span class="sent"> I started there because I wanted a rough map before going into the details: the encyclopedia provided the cast, the disputed objects and the overall shape of the chronology, and everything that came after would replace, correct or contradict it.</span></p>
+<p><span class="sent">That one article produced thirty-three new pages and touched a dozen more:</span></p>
+<figure class="diagram"><pre class="mermaid">flowchart LR
+    S["Wikipedia article&lt;br/&gt;1 source page"]
+    S --&gt; P["9 people"]
+    S --&gt; L["2 locations"]
+    S --&gt; E["2 events"]
+    S --&gt; V["9 evidence items"]
+    S --&gt; H["2 hypotheses"]
+    S --&gt; C["4 contradictions"]
+    S --&gt; Q["4 leads,&lt;br/&gt;13 open questions"]
+    S --&gt; T["32 timeline entries"]
+    S --&gt; X["overview, index,&lt;br/&gt;9 category files, log"]</pre></figure>
+<p><span class="sent">This ratio is really what the pattern is about, since the model did not store the article away for later retrieval but used it to update the case.</span><span class="sent"> The source page keeps track of what was done, and its frontmatter lists every page the article changed:</span></p>
+<figure class="ide" data-lang="yaml">
+<div class="ide-head"><span class="dot"></span><span class="file">wiki/sources/2026-04-22--delitto-di-garlasco.md</span><span class="lang">YAML</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">---</span></div>
+<div class="ln"><span class="num">2</span><span class="src">type: source</span></div>
+<div class="ln"><span class="num">3</span><span class="src">case_id: garlasco-<span class="t-n">2007</span></span></div>
+<div class="ln"><span class="num">4</span><span class="src">source_class: article</span></div>
+<div class="ln"><span class="num">5</span><span class="src">date: <span class="t-n">2015</span>-<span class="t-n">07</span>-<span class="t-n">29</span></span></div>
+<div class="ln"><span class="num">6</span><span class="src">provenance: <span class="t-s">"https://it.wikipedia.org/wiki/Delitto_di_Garlasco"</span></span></div>
+<div class="ln"><span class="num">7</span><span class="src">reliability: medium</span></div>
+<div class="ln"><span class="num">8</span><span class="src">pages_updated:</span></div>
+<div class="ln"><span class="num">9</span><span class="src">  - wiki/people/chiara-poggi</span></div>
+<div class="ln"><span class="num">10</span><span class="src">  - wiki/people/alberto-stasi</span></div>
+<div class="ln"><span class="num">11</span><span class="src">  <span class="t-c"># … 27 more</span></span></div>
+<div class="ln"><span class="num">12</span><span class="src">last_updated: <span class="t-n">2026</span>-<span class="t-n">04</span>-<span class="t-n">22</span></span></div>
+<div class="ln"><span class="num">13</span><span class="src">tags: [wikipedia, panoramica, caso-garlasco, fonte-secondaria]</span></div>
+<div class="ln"><span class="num">14</span><span class="src">---</span></div>
+</div>
+</figure>
+<p><span class="sent">Have a look at <code>provenance</code>.</span><span class="sent"> It was supposed to hold the path of our own archived copy in <code>raw/</code>, but the model put the original web address there instead, and since nothing was checking it, the habit spread to sixty-eight source pages over the following weeks.</span><span class="sent"> It took four cleanup scripts to untangle, and the vault&#39;s own bug history lists it as the most expensive kind of error in the repository.</span><span class="sent"> A schema that nothing enforces is little more than a suggestion, although it took me quite a while to really learn that.</span></p>
+<p><span class="sent">Over the following few days came the primary record, that is the five judgments, from the preliminary hearing ruling in Vigevano through the Milan appeal, the Supreme Court annulment, the second appeal conviction and the definitive Supreme Court ruling.</span><span class="sent"> Each of them was ingested as a primary document, with its own source page and its own consequences for the timeline, and after them the wiki stopped being a summary of the case and started to look more like a structured argument about it.</span></p>
+<p><span class="sent">Every ingest followed the same numbered procedure, written down in <code>workflow-ingest.md</code>, which in its final form had twelve steps, numbered from zero to eleven:</span></p>
+<ol start="0">
+<li>check that the source has not already been ingested;</li>
+<li>read it, and extract facts, claims, entities, dates, and quotations;</li>
+<li>create its source page;</li>
+<li>update the case overview if the picture changed;</li>
+<li>create or update every relevant person, place, event, evidence, and hypothesis page, inserting each dated entry in chronological order;</li>
+<li>add its entries to the master timeline;</li>
+<li>flag contradictions;</li>
+<li>add open questions and leads;</li>
+<li>update the category indexes;</li>
+<li>write the log entry;</li>
+<li>check the work;</li>
+<li>commit.</li>
+</ol>
+<p><span class="sent">The log entry for the Wikipedia ingest gives a fair idea of what a single pass meant: the source, thirty-three pages created, thirteen updated, four contradictions found, thirteen open questions added, and the commit message, in Italian of course.</span></p>
+<p><span class="sent">Step ten deserves a closer look.</span><span class="sent"> About a month in, I added a checklist that the model had to run on its own work before committing (every touched page indexed, no empty relationship arrays, no empty headings, no bare-integer tags, frontmatter matching the template), and it read pretty much like a code review:</span></p>
+<blockquote><p><strong>Frontmatter matches the template</strong> — for every page type (source, person, event, evidence, location, etc.), compare the frontmatter keys against the corresponding template in <code>templates/</code>:</p><ul>
+<li>No <strong>made-up keys</strong> — fields not present in the template (e.g. <code>source_type</code> instead of <code>source_class</code>, adding a key that has no template counterpart)</li>
+<li>No <strong>missing required keys</strong> — every key from the template must be present (e.g. <code>reliability</code> on a source page, <code>provenance</code> on a source page, <code>evidence_type</code> on an evidence page). Missing keys are errors even if you think they are optional.</li>
+</ul></blockquote>
+<p><span class="sent">It did help, but it was carried out by the same model that had just done the work, in the same context, so in the end it was exactly as reliable as the work it was supposed to check.</span></p>
+<p><span class="sent">When several sources arrived together, the workflow prescribed one subagent per source, run one after the other and never in parallel.</span><span class="sent"> The reason was the wiki&#39;s shared state: the log, the category indexes and the master timeline would have ended up in merge conflicts if two subagents had written them at the same time, and, as the workflow put it, &quot;the next subagent must start from a wiki that already contains the previous ingest.&quot;</span><span class="sent"> That shared state, more than anything else, is what eventually pushed the architecture to its limits.</span></p>
+<p><span class="sent">The other two operations were simpler, at least on paper.</span><span class="sent"> A query started from <code>index.md</code>, opened the relevant pages, followed their links and answered with citations to the source pages, while an audit looked for broken links, empty relationship arrays, contradictions not yet recorded and outdated summaries.</span><span class="sent"> In practice I spent almost all my time on ingest and audit, by my own choice: I barely used queries and never filed a single report, even though the design said that any useful analysis should be filed back into the wiki.</span></p>
+<h2>7. Finding your way around</h2>
+<p><span class="sent">A wiki maintained by a model has to be navigable by a model that remembers nothing from one session to the next, and two kinds of file took care of that.</span><span class="sent"> <code>index.md</code> is the catalog, with the state of the case in two or three sentences, the list of categories and the links to the reference pages, while <code>categories/*.md</code> are indexes by page type, one line per page, because the idea file had already warned that a single index would not stay within a few hundred lines.</span><span class="sent"> The rule was that a new session had to be able to find its way around in at most four reads: <code>AGENTS.md</code>, <code>index.md</code>, the case overview and the relevant category index.</span></p>
+<p><span class="sent"><code>log.md</code> was the memory of what had been done, an append-only record of every ingest, query, audit and structural change.</span><span class="sent"> It served two purposes: it gave me a history of the investigation, and it gave the model a way to avoid ingesting the same article twice, since the duplicate check was, quite literally, &quot;read the last twenty entries&quot;.</span></p>
+<p><span class="sent">The human side of the wiki lives in Obsidian, where the plugins only shape the interface and the data stays plain markdown: Templater fills in the templates, Pretty Properties renders the frontmatter as cards, Notebook Navigator gives a folder-first sidebar, obsidian-git syncs the repository, Omnisearch searches the PDFs in <code>raw/</code>, and Dataview builds live tables for me.</span><span class="sent"> The model never uses Dataview and reads the same plain markdown I see, which is also why the navigation files are plain text in the first place.</span></p>
+<figure class="photo static" style="--ratio:2754/2634;max-width:1100px"><div class="ph"><picture><source type="image/avif" srcset="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@640w.avif 640w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@1024w.avif 1024w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@1600w.avif 1600w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@2200w.avif 2200w" sizes="(max-width: 1024px) 100vw, 60vw"><source type="image/webp" srcset="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@640w.webp 640w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@1024w.webp 1024w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@1600w.webp 1600w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@2200w.webp 2200w" sizes="(max-width: 1024px) 100vw, 60vw"><img src="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view.png" srcset="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@640w.png 640w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@1024w.png 1024w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@1600w.png 1600w, /a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/assets/graph-view@2200w.png 2200w" sizes="(max-width: 1024px) 100vw, 60vw" alt="The graph view" loading="lazy" /></picture></div><figcaption><span class="cap-title">The graph view</span><span class="cap-caption">Obsidian&#39;s graph view of the vault today. Every dot is a page and every line a link, mostly the double-bracket links that templates, timeline entries and source pages are full of.</span></figcaption></figure>
+<h2>8. What worked</h2>
+<p><span class="sent">Most of what worked is not particularly exciting: sources that are never modified, a page type for every kind of question, contradictions treated as proper objects instead of footnotes, a timeline that can say &quot;approximately&quot; and &quot;disputed&quot;, templates strict enough to be parsed and consistent enough to be trusted, a log that keeps track of what changed, and a starting path short enough that a new session becomes useful after four reads.</span><span class="sent"> None of these are tricks specific to LLMs, they are simply the good habits of any serious case file, and they are the reason why the output was worth reading at all.</span></p>
+<p><span class="sent">The pattern itself held up too, since a single article really did turn into thirty-three cross-linked pages in one pass, with its disagreements brought to the surface and its uncertainties labelled.</span><span class="sent"> A person doing the same thing by hand for a few hundred sources would have given up long before the end, which is exactly Karpathy&#39;s point.</span></p>
+<h2>9. Where it broke</h2>
+<p><span class="sent" data-fns="4">By the time I stopped working on the first design, the wiki held 448 source pages and 143 people pages<sup class="fn-ref"><a href="#fn-4" data-fn="4">4</a></sup>:</span></p>
+<aside class="sidenote" id="fn-4" data-fn="4"><span class="num">4</span>All counts, sizes and excerpts come from the vault&#39;s git history. The &quot;before the rewrite&quot; column is the last commit of the first design, on 2 July 2026; raw articles exclude placeholder files.</aside>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th style="text-align:right">After the first source</th><th style="text-align:right">Before the rewrite</th></tr></thead>
+<tbody>
+<tr><td>Source pages</td><td style="text-align:right">1</td><td style="text-align:right">448</td></tr>
+<tr><td>People pages</td><td style="text-align:right">9</td><td style="text-align:right">143</td></tr>
+<tr><td>Timeline entries</td><td style="text-align:right">32</td><td style="text-align:right">354</td></tr>
+<tr><td>Evidence pages</td><td style="text-align:right">9</td><td style="text-align:right">33</td></tr>
+<tr><td>Contradiction pages</td><td style="text-align:right">4</td><td style="text-align:right">13</td></tr>
+<tr><td>Raw articles on disk</td><td style="text-align:right">1</td><td style="text-align:right">1,106</td></tr>
+</tbody>
+</table></div>
+<p><span class="sent">Bear in mind that these numbers were limited only by the amount of free time I had available to dedicate to the project (namely, finding the sources and converting them to Markdown) and, at times, by the usage limits of my Claude and OpenCode subscription plans.</span><span class="sent"> It took 422 ingests and 59 audits to get there.</span><span class="sent"> By the end, the ingesting had started to slow down and become problematic.</span></p>
+<p><span class="sent">The chart below shows how it grew: the bars are the articles waiting on disk, and the line is the source pages that were actually ingested.</span></p>
+<figure class="diagram"><pre class="mermaid">xychart-beta
+    title "Raw articles on disk (bars) vs. ingested sources (line)"
+    x-axis ["22/4", "29/4", "6/5", "13/5", "20/5", "27/5", "3/6", "10/6", "17/6", "24/6", "2/7"]
+    y-axis "files" 0 --&gt; 1200
+    bar [1, 1, 1, 709, 709, 709, 709, 709, 709, 709, 1106]
+    line [3, 6, 6, 44, 146, 207, 247, 284, 334, 391, 448]</pre></figure>
+<p><span class="sent">Looking back, the costs of the system came from three places, and only one of them was the model.</span></p>
+<p><span class="sent">The first was reading.</span><span class="sent"> The raw corpus was made of PDFs of judgments, long magazine features, transcripts and scanned material, so long sources had to be split into chunks and delegated, with an explicit instruction to keep the context window below forty percent.</span><span class="sent"> Reading was the most visible cost, and the easiest one to measure.</span></p>
+<p><span class="sent">The second was maintenance.</span><span class="sent"> Every ingest had to update the pages it touched, the timeline, the category indexes and the log, and every update had to preserve chronology, cross-references and frontmatter.</span><span class="sent"> The median article touched seven wiki files, and the largest ingest touched thirty-six.</span><span class="sent"> This was exactly the cost the pattern promised to eliminate, and it did eliminate the human share of it, but not the work itself, which simply moved into the model&#39;s context, where it had to be worked out again from the instructions in every session, and into the schema, which kept growing longer as the failure modes piled up.</span></p>
+<p><span class="sent">The third was sourcing.</span><span class="sent"> Finding the articles, converting them to markdown, naming them consistently and filing them in the right directory was all manual work, and it took a large share of the project&#39;s time before the agent ever saw a file.</span><span class="sent"> The corpus grew in bursts (the two steps in the chart are the archive of La Provincia Pavese, the local paper, and later a batch of articles from Panorama and Libero), and every burst made the queue longer, until it was clear that the backlog was growing faster than I could ingest it.</span></p>
+<p><span class="sent">In the meantime, the files that held the shared state had grown to a size that was starting to work against them:</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Artifact</th><th>What it had become</th><th>Why it hurt</th></tr></thead>
+<tbody>
+<tr><td><code>master-timeline.md</code></td><td>537 KB, 4,121 lines, 303 entries</td><td>read in full on every ingest just to find the insertion point</td></tr>
+<tr><td><code>log.md</code></td><td>1 MB, 9,211 lines</td><td>verbose entries duplicated page content; append-only made it worse</td></tr>
+<tr><td><code>case-overview.md</code></td><td>200 KB, 93% of it a changelog</td><td>about 50,000 tokens to read at every cold start</td></tr>
+<tr><td>Source frontmatter</td><td>~40 distinct keys against 10 in the template</td><td>each period of ingests had drifted into its own style</td></tr>
+<tr><td><code>provenance</code> vs <code>url</code></td><td>conflated on 68 source pages</td><td>four cleanup scripts; in 3 of 27 collisions the two were swapped</td></tr>
+<tr><td><code>tags</code></td><td>bare year integers</td><td>Obsidian type mismatch on every affected page</td></tr>
+<tr><td>Duplicate check</td><td>&quot;read the last 20 log entries&quot;</td><td>useless against a backlog of 700 articles ingested out of order</td></tr>
+</tbody>
+</table></div>
+<p><span class="sent">And the distinctions the idea file cared about the most were precisely the ones nothing enforced.</span><span class="sent"> An audit found two source pages where a reliability value (<code>high</code>, <code>medium</code> or <code>low</code>) had been written into the <code>confidence</code> field: two different scales, and nothing in the system preventing a model from using one in place of the other, so the mistake had gone unnoticed for seven weeks.</span></p>
+<p><span class="sent">The moment I realized it was a small one.</span><span class="sent"> An audit noticed that an ingest had updated the wiki without ever writing its log entry, and rebuilt the entry from the commit.</span><span class="sent"> Nothing had failed in any visible way, the work had simply not been done, and the only guarantee that it had been was the word of the same model that did the work and then judged the result.</span></p>
+<p><span class="sent">That was the blind spot of the first design.</span><span class="sent"> All of its failures were, in one way or another, the same mistake, which was to use prose as the place where the data lives: indexes, chronologies and timeline entries maintained by hand, and a checklist run by the same hand that had written them.</span><span class="sent"> Each of these choices was reasonable with one source and unsustainable with four hundred.</span><span class="sent"> In the end Karpathy&#39;s sentence holds for a single edit but not for a whole corpus, because the model does not get bored, that is true, but it does run out of context, and keeping hundreds of pages consistent is a problem of the system as a whole, not something you can fix by asking the model to be more careful.</span></p>
+<p><span class="sent">So the first wiki worked better as a case file than as a database, and Part 2 is about turning it into a database without losing what made it a good case file.</span></p>
+      </article>
+      <nav class="pager" id="pager"><span class="prev empty"></span><a class="next" href="/a/sostantivi-fastidiosi/"><span class="label">Older →</span><span>Sostantivi fastidiosi</span></a></nav>
+    </div>
+  </section>
+
+  <!-- ====================== RIGHT ====================== -->
+  <aside class="pane right">
+    <div class="top">
+      <a href="/" class="mark" data-mark aria-label="vuotogeometrico"></a>
+      <div class="who">
+        <div class="name">vuotogeometrico</div>
+        <div class="role">photography, software engineering, thoughts</div>
+      </div>
+    </div>
+
+    <div class="about">
+      <p>Vuoto geometrico è l&#39;incubo ricorrente della mia dormiveglia infantile. È uno spazio senza confini, in cui una linea retta, seguita con gli occhi, accelera e collassa su sé stessa. O un cerchio che si restringe fino a diventare un punto, o si allarga fino a togliere il respiro.</p>
+      <p>In questo angolo del web cerco di mettere insieme temi fotografici, e ogni tanto rigurgito qualche pensiero sul mondo del software o qualsiasi altra cosa mi passi per la testa.</p>
+      <a class="email" href="mailto:msmcntmr@gmail.com">msmcntmr@gmail.com</a>
+    </div>
+
+    <div class="pane-tools">
+      <div class="text-size" data-text-size aria-label="Text size">
+        <button type="button" data-size="16" aria-label="Small">A</button>
+        <button type="button" data-size="18" aria-label="Medium">A</button>
+        <button type="button" data-size="20" aria-label="Large">A</button>
+      </div>
+      <span class="sep" aria-hidden="true"></span>
+      <button type="button" class="panel-swap" data-panel-swap aria-label="Swap panel backgrounds" title="Swap panel backgrounds">
+        <svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true">
+          <rect class="pl-left"  x="0.5" y="0.5" width="10" height="13" stroke-width="1" />
+          <rect class="pl-right" x="11.5" y="0.5" width="10" height="13" stroke-width="1" />
+        </svg>
+      </button>
+    </div>
+  </aside>
+
+</div>
+
+<!-- ====================== FULLSCREEN IMAGE MODAL ====================== -->
+<div class="modal" id="modal" hidden>
+  <div class="scrim"></div>
+  <div class="modal-inner">
+    <div class="modal-img" id="modal-img"></div>
+    <div class="modal-meta">
+      <div class="eyebrow">Plate</div>
+      <h2 id="m-title">—</h2>
+      <p class="caption" id="m-caption" hidden></p>
+      <div class="desc" id="m-desc" hidden></div>
+      <dl class="tech" id="m-tech"></dl>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== FIGURE DATA ====================== -->
+<script id="figdata" type="application/json">[]</script>
+<script src="/assets/article.js"></script>
+<script type="module" src="/assets/diagrams.js"></script>
+
+</body>
+</html>

@@ -54,6 +54,159 @@
     new MutationObserver(schedule).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
   }
 
+  /* ----- reading rail: on-screen window + chapter marks in the right margin -----
+     Shown only on articles with chapters (h2). The ink segment maps the
+     viewport onto the rail; its two ends follow on springs, the leading end
+     stiffer than the trailing one, so the segment stretches while scrolling
+     and settles with a small bounce. The current chapter's title stays beside
+     its tick; pointing near the rail lists every chapter. */
+  const seam = document.querySelector('[data-seam]');
+  const heads = [...$body.querySelectorAll(':scope > h2')];
+  if (seam && !heads.length) seam.remove();
+  else if (seam){
+    const twoCol = window.matchMedia('(min-width: 1025px)');
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const ticksEl = seam.querySelector('.seam-ticks');
+    let ticks = [], raf = 0, last = 0, current = -1;
+
+    // hover strip around the rail; the list stays open while the pointer is
+    // on the strip or on a title, with a short grace period between them
+    const zone = document.createElement('div');
+    zone.className = 'seam-zone';
+    seam.insertBefore(zone, ticksEl);
+    let closeT = 0;
+    seam.addEventListener('mouseenter', () => { clearTimeout(closeT); seam.classList.add('open'); });
+    seam.addEventListener('mouseleave', () => {
+      clearTimeout(closeT);
+      closeT = setTimeout(() => { seam.classList.remove('open'); kick(); }, 220);
+    });
+    const docH = () => Math.max(1, document.documentElement.scrollHeight);
+    const maxScroll = () => Math.max(1, docH() - innerHeight);
+    // where a jumped-to chapter heading lands, and where it counts as reached
+    const landing = () => Math.round(innerHeight * 0.08);
+    const headY = h => h.getBoundingClientRect().top + scrollY - landing();
+
+    // the rail sits past the article's right edge (text + sidenote column),
+    // never closer than 24px to the pane boundary
+    function placeRail(){
+      const body = $body.getBoundingClientRect().right;
+      const pane = $body.closest('.pane').getBoundingClientRect().right;
+      seam.style.setProperty('--seam-x', Math.round(Math.min(body + 40, pane - 24)) + 'px');
+    }
+
+    function placeTicks(){
+      placeRail();
+      ticksEl.textContent = '';
+      ticks = heads.map(h => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'seam-tick'; b.tabIndex = -1;
+        b.setAttribute('aria-hidden', 'true');
+        const label = document.createElement('span');
+        label.textContent = h.textContent;
+        b.append(label);
+        b.addEventListener('click', () => scrollTo({ top: headY(h), behavior: calm.matches ? 'auto' : 'smooth' }));
+        ticksEl.append(b);
+        // scroll progress at which the chapter counts as reached
+        const reach = Math.min(1, Math.max(0, headY(h) / maxScroll()));
+        return { b, h, reach };
+      });
+      placeTickMarks();
+      kick();
+    }
+    // a tick sits where its heading falls on the rail (same mapping as the
+    // window); titles closer than a line apart are pushed down to stay legible
+    function placeTickMarks(){
+      const run = innerHeight - 64, gap = 20, cut = 6;   // cut: half-gap in the rail
+      let prev = -Infinity;
+      const stops = ['#000 0'];
+      for (const t of ticks){
+        const at = (t.h.getBoundingClientRect().top + scrollY) / docH();
+        t.b.style.setProperty('--at', at.toFixed(4));
+        const y = 32 + run * at, shown = Math.max(y, prev + gap);
+        t.b.style.setProperty('--dy', (shown - y).toFixed(1) + 'px');
+        prev = shown;
+        stops.push(`#000 ${(y - cut).toFixed(1)}px`, `transparent ${(y - cut).toFixed(1)}px`,
+                   `transparent ${(y + cut).toFixed(1)}px`, `#000 ${(y + cut).toFixed(1)}px`);
+      }
+      seam.style.setProperty('--gaps', `linear-gradient(to bottom, ${stops.join(', ')})`);
+    }
+
+    // the current chapter's title hides while it would sit over article
+    // content (sidenotes, or text on narrower screens), and returns after
+    function labelCovered(t){
+      const r = t.b.querySelector('span').getBoundingClientRect();
+      const y = r.top + r.height / 2;
+      for (const x of [r.left + 4, r.left + r.width / 2, r.right - 4]){
+        for (const el of document.elementsFromPoint(x, y)){
+          if (el !== $body && $body.contains(el)) return true;
+        }
+      }
+      return false;
+    }
+
+    // spring state for the two ends of the segment (fractions of the rail)
+    const ends = { a: { x: 0, v: 0 }, b: { x: 0, v: 0 } };
+    const LEAD = { k: 380, c: 26 }, TRAIL = { k: 70, c: 8 };
+    function step(e, target, lead, dt){
+      const { k, c } = lead ? LEAD : TRAIL;
+      e.v += (k * (target - e.x) - c * e.v) * dt;
+      e.x += e.v * dt;
+    }
+    function frame(now){
+      raf = 0;
+      const dt = Math.min(0.032, last ? (now - last) / 1000 : 0.016);
+      last = now;
+      const ta = scrollY / docH(), tb = (scrollY + innerHeight) / docH();
+      if (calm.matches){
+        ends.a.x = ta; ends.b.x = tb; ends.a.v = ends.b.v = 0;
+      } else {
+        const down = (ta - ends.a.x) + (tb - ends.b.x) >= 0;
+        for (let i = 0; i < 2; i++){                   // two half-steps: steadier
+          step(ends.a, ta, !down, dt / 2);
+          step(ends.b, tb, down, dt / 2);
+        }
+      }
+      const a = Math.max(0, Math.min(ends.a.x, ends.b.x - 0.004));
+      const b = Math.min(1, Math.max(ends.b.x, a + 0.004));
+      seam.style.setProperty('--a', a.toFixed(5));
+      seam.style.setProperty('--b', b.toFixed(5));
+      const p = scrollY / maxScroll();
+      current = -1;
+      ticks.forEach((t, i) => {
+        const passed = p >= t.reach - 0.001;
+        t.b.classList.toggle('passed', passed);
+        if (passed) current = i;
+      });
+      ticks.forEach((t, i) => {
+        t.b.classList.toggle('current', i === current);
+        t.b.classList.toggle('covered', i === current && labelCovered(t));
+      });
+      const busy = Math.abs(ends.a.x - ta) + Math.abs(ends.b.x - tb) > 1e-4
+        || Math.abs(ends.a.v) + Math.abs(ends.b.v) > 1e-3;
+      if (busy) raf = requestAnimationFrame(frame); else last = 0;
+    }
+    function kick(){ if (!raf) raf = requestAnimationFrame(frame); }
+
+    function setup(){
+      if (!twoCol.matches) return;
+      placeTicks();
+      if (!seam.classList.contains('on')){                 // first show: no spring-in
+        ends.a.x = scrollY / docH(); ends.b.x = (scrollY + innerHeight) / docH();
+      }
+      seam.classList.add('on');
+    }
+    setup();
+    addEventListener('scroll', kick, { passive: true });
+    addEventListener('resize', setup);
+    addEventListener('load', setup);
+    document.fonts && document.fonts.ready.then(setup);
+    twoCol.addEventListener('change', setup);
+    new MutationObserver(setup).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+    // diagrams render and images settle after load: re-measure when the article's height changes
+    let rT = 0;
+    new ResizeObserver(() => { clearTimeout(rT); rT = setTimeout(setup, 100); }).observe($body);
+  }
+
   Object.entries(sidenoteRefs).forEach(([n, aside]) => {
     const enter = () => {
       $body.querySelectorAll(`.sent[data-fns~="${n}"]`).forEach(s => s.classList.add('is-hover-sent'));

@@ -468,6 +468,26 @@ async function renderArticleBody(article, slugSet){
   const lastHr = flow.findLastIndex(n => n.type === 'thematicBreak');
   const endnotesHr = lastHr >= 0 && flow[lastHr + 1]?.type === 'heading' ? flow[lastHr] : null;
 
+  // lists and quotes may nest each other (a list inside a quote, a sub-list
+  // inside an item); render every child kind instead of dropping it
+  const listHtml = (list) => {
+    const tag = list.ordered ? 'ol' : 'ul';
+    const start = list.ordered && list.start != null && list.start !== 1 ? ` start="${list.start}"` : '';
+    const items = list.children.map(li => `<li>${li.children.map(nestedHtml).join(' ')}</li>`).join('\n');
+    return `<${tag}${start}>\n${items}\n</${tag}>`;
+  };
+  const nestedHtml = (c) => {
+    switch (c.type){
+      case 'paragraph': return inlineHtml(c.children, ctx);
+      case 'list': return listHtml(c);
+      case 'blockquote': return quoteHtml(c);
+      case 'code': return renderCodeFig(c.lang || '', c.meta || '', c.value);
+      default: return '';
+    }
+  };
+  const quoteHtml = (q) => `<blockquote>${q.children.map(c =>
+    c.type === 'paragraph' ? `<p>${inlineHtml(c.children, ctx)}</p>` : nestedHtml(c)).join('')}</blockquote>`;
+
   for (const node of flow){
     switch (node.type){
       case 'paragraph': {
@@ -504,17 +524,15 @@ async function renderArticleBody(article, slugSet){
       case 'heading':
         parts.push(`<h${node.depth}>${inlineHtml(node.children, ctx)}</h${node.depth}>`);
         break;
+      // notes referenced inside a quote or list hang beside it, as after a paragraph
       case 'blockquote':
-        parts.push(`<blockquote>${node.children.map(c => c.type === 'paragraph' ? `<p>${inlineHtml(c.children, ctx)}</p>` : '').join('')}</blockquote>`);
+        parts.push(quoteHtml(node));
+        emitSidenotes();
         break;
-      case 'list': {
-        const tag = node.ordered ? 'ol' : 'ul';
-        const items = node.children.map(li =>
-          `<li>${li.children.map(c => c.type === 'paragraph' ? inlineHtml(c.children, ctx) : '').join(' ')}</li>`
-        ).join('\n');
-        parts.push(`<${tag}>\n${items}\n</${tag}>`);
+      case 'list':
+        parts.push(listHtml(node));
+        emitSidenotes();
         break;
-      }
       case 'thematicBreak':
         parts.push(node === endnotesHr ? '<hr class="endnotes-rule" />' : '<hr />');
         break;

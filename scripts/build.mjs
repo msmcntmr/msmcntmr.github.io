@@ -325,6 +325,13 @@ function extractImageBlocks(raw){
   return { md: out.join('\n'), figures };
 }
 
+// the one tag an article may carry ("tag:" in frontmatter, optional); not
+// shown anywhere yet, but exposed as <html data-tag> so styles can key on it
+const TAGS = ['photography', 'software-engineering', 'random'];
+// the animated backdrop each tag gets in the right pane: canvas class and
+// script name (assets/<name>.js)
+const BACKDROPS = { 'software-engineering': 'rain', 'photography': 'photo' };
+
 function parseArticle(dir, slugSet){
   const mdPath = path.join(dir, 'index.md');
   const raw = fs.readFileSync(mdPath, 'utf8');
@@ -342,8 +349,10 @@ function parseArticle(dir, slugSet){
   const date = fm.date instanceof Date ? fm.date : new Date(String(fm.date || folder.slice(0, 10)) + 'T00:00:00Z');
   if (isNaN(date)) throw new Error(`${folder}: missing/invalid date (frontmatter "date:" or YYYY-MM-DD- folder prefix)`);
   if (!fm.title) throw new Error(`${folder}: missing "title:" in frontmatter`);
+  const tag = fm.tag == null ? '' : String(fm.tag).trim();
+  if (tag && !TAGS.includes(tag)) throw new Error(`${folder}: unknown "tag: ${tag}" in frontmatter (use one of: ${TAGS.join(', ')})`);
 
-  return { dir, folder, slug, date, title: String(fm.title), draft: !!fm.draft, description: fm.description || '', abstract: fm.abstract ? String(fm.abstract).trim() : '', tree, figures };
+  return { dir, folder, slug, date, title: String(fm.title), tag, draft: !!fm.draft, description: fm.description || '', abstract: fm.abstract ? String(fm.abstract).trim() : '', tree, figures };
 }
 
 async function renderArticleBody(article, slugSet){
@@ -819,12 +828,15 @@ for (let i = 0; i < articles.length; i++){
   fs.writeFileSync(path.join(outDir, 'index.html'), fill(tplArticle, {
     ...commonVars(),
     PAGE_TITLE: `${esc(a.title)} — ${esc(SITE.name)}`,
+    TAG_ATTR: a.tag ? ` data-tag="${esc(a.tag)}"` : '',
     DESCRIPTION: esc(desc),
     DATE: fmtLong(a.date),
     TITLE: esc(a.title),
     ABSTRACT: a.abstract ? `<p class="abstract">${esc(a.abstract)}</p>` : '',
     BODY: html,
     DIAGRAM_SCRIPT: hasMermaid ? '<script type="module" src="/assets/diagrams.js"></script>' : '',
+    BACKDROP: BACKDROPS[a.tag] ? `    <canvas class="backdrop ${BACKDROPS[a.tag]}" aria-hidden="true"></canvas>` : '',
+    BACKDROP_SCRIPT: BACKDROPS[a.tag] ? `<script src="/assets/${BACKDROPS[a.tag]}.js"></script>` : '',
     PAGER: pager,
     FIGDATA: JSON.stringify(figdata).replace(/</g, '\\u003c'),
     CANONICAL_URL: abs(`/a/${a.slug}/`),

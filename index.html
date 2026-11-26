@@ -104,6 +104,9 @@
     color: var(--mute);
     line-height: 1.4;
   }
+  /* the word standing for the hovered entry's tag, in full ink */
+  .who .role .role-word{ transition: color .35s ease; }
+  .who .role .role-word.on{ color: var(--ink); }
   .bio{
     max-width: 36ch;
     margin: 0 0 120px;
@@ -299,7 +302,7 @@
       <a href="/" class="mark" data-mark aria-label="vuotogeometrico"></a>
       <div class="who">
         <div class="name">vuotogeometrico</div>
-        <div class="role">photography, software engineering, thoughts</div>
+        <div class="role"><span class="role-word" data-tag="photography">photography</span>, <span class="role-word" data-tag="software-engineering">software engineering</span>, <span class="role-word" data-tag="random">thoughts</span></div>
       </div>
     </div>
 
@@ -317,10 +320,7 @@
       </div>
       <span class="sep" aria-hidden="true"></span>
       <button type="button" class="panel-swap" data-panel-swap aria-label="Swap panel backgrounds" title="Swap panel backgrounds">
-        <svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true">
-          <rect class="pl-left"  x="0.5" y="0.5" width="10" height="13" stroke-width="1" />
-          <rect class="pl-right" x="11.5" y="0.5" width="10" height="13" stroke-width="1" />
-        </svg>
+        <span class="half" aria-hidden="true"></span>
       </button>
     </div>
   </aside>
@@ -343,11 +343,13 @@
   })();
 
   // hovering or focusing an entry fades in its tag's backdrop in the right
-  // pane; a photography entry hands the photo backdrop one of its photos,
-  // kept for the visit so the same entry shows the same print
+  // pane and lights up its tag's word in the role line; a photography entry
+  // hands the photo backdrop one of its photos, kept for the visit so the
+  // same entry shows the same print
   (() => {
     const canvases = [...document.querySelectorAll('.right > .backdrop')];
-    if (!canvases.length) return;
+    const words = [...document.querySelectorAll('.role-word')];
+    if (!canvases.length && !words.length) return;
     let off = 0;
     const show = entry => {
       clearTimeout(off);
@@ -360,9 +362,10 @@
         if (c.dataset.src !== entry._photo) c.dataset.src = entry._photo;
       }
       canvases.forEach(x => x.classList.toggle('on', x === c));
+      words.forEach(x => x.classList.toggle('on', x.dataset.tag === entry.dataset.tag));
     };
     // a short grace period, so moving between entries doesn't flicker
-    const hide = () => { off = setTimeout(() => canvases.forEach(x => x.classList.remove('on')), 200); };
+    const hide = () => { off = setTimeout(() => [...canvases, ...words].forEach(x => x.classList.remove('on')), 200); };
     document.querySelectorAll('.entry').forEach(e => {
       e.addEventListener('pointerenter', () => show(e));
       e.addEventListener('pointerleave', hide);

@@ -676,6 +676,8 @@
   /* ---------- right pane (identity + about) ---------- */
   .who .name{ font-weight: 500; font-size: var(--fs, 14px); }
   .who .role{ font-weight: 400; font-size: var(--fs, 14px); color: var(--mute); }
+  /* the word of the role line standing for this article's tag, in full ink */
+  .who .role .role-word.on{ color: var(--ink); }
 
   .about{
     max-width: 38ch;
@@ -974,7 +976,7 @@ Avevo altri esempi in mente nel tempo, ma ovviamente il mio cervello se li è gi
       <a href="/" class="mark" data-mark aria-label="vuotogeometrico"></a>
       <div class="who">
         <div class="name">vuotogeometrico</div>
-        <div class="role">photography, software engineering, thoughts</div>
+        <div class="role"><span class="role-word" data-tag="photography">photography</span>, <span class="role-word" data-tag="software-engineering">software engineering</span>, <span class="role-word on" data-tag="random">thoughts</span></div>
       </div>
     </div>
 
@@ -992,10 +994,7 @@ Avevo altri esempi in mente nel tempo, ma ovviamente il mio cervello se li è gi
       </div>
       <span class="sep" aria-hidden="true"></span>
       <button type="button" class="panel-swap" data-panel-swap aria-label="Swap panel backgrounds" title="Swap panel backgrounds">
-        <svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true">
-          <rect class="pl-left"  x="0.5" y="0.5" width="10" height="13" stroke-width="1" />
-          <rect class="pl-right" x="11.5" y="0.5" width="10" height="13" stroke-width="1" />
-        </svg>
+        <span class="half" aria-hidden="true"></span>
       </button>
     </div>
   </aside>

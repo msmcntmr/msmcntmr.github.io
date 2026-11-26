@@ -329,14 +329,18 @@ body.sf-leaving{
   line-height: 0;
 }
 .panel-swap:hover{ color: var(--ink); }
-.panel-swap svg{ display: block; }
-.panel-swap rect{
-  transition: fill .25s ease, stroke .25s ease;
+/* a hairline ring, half filled, about the cap height of the middle "A";
+   it turns over when the panels swap, the filled half changing sides */
+.panel-swap .half{
+  display: block;
+  box-sizing: border-box;
+  width: 12px; height: 12px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: linear-gradient(to right, currentColor 50%, transparent 50%);
+  transition: transform .5s cubic-bezier(.65,.05,.36,1);
 }
-.panel-swap .pl-left { fill: var(--bg);    stroke: currentColor; }
-.panel-swap .pl-right{ fill: var(--panel); stroke: currentColor; }
-body[data-panels="swapped"] .panel-swap .pl-left { fill: var(--panel); }
-body[data-panels="swapped"] .panel-swap .pl-right{ fill: var(--bg); }
+body[data-panels="swapped"] .panel-swap .half{ transform: rotate(180deg); }
 
 @media (max-width: 1024px){
   .pane-tools{

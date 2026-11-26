@@ -81,6 +81,20 @@
     transition: opacity .8s ease .2s;
   }
   .seam.on{ opacity: 1; }
+  /* open list: one backing for the whole rail, solid at the line and fading
+     to nothing towards the article, so the titles read over sidenotes without
+     each sitting on its own hard-edged box */
+  .seam::before{
+    content: ''; position: absolute; top: 0; height: 100vh;
+    right: -24px; width: 272px;
+    background: linear-gradient(to right,
+      transparent,
+      color-mix(in oklab, var(--pane-left-bg, var(--bg)) 85%, transparent) 40px,
+      var(--pane-left-bg, var(--bg)) 80px);
+    opacity: 0; pointer-events: none;
+    transition: opacity .25s ease;
+  }
+  .seam.open::before{ opacity: 1; }
   /* the rail is ink at low strength, so it reads the same on white and
      warm-cream (and if the reader swaps the two panes) */
   /* track and segment share a mask that cuts a short gap at every chapter
@@ -127,25 +141,49 @@
     pointer-events: auto;
   }
   /* chapter titles sit on the article side, right-aligned against the rail.
-     Closed: only the current chapter's title shows (article.js hides it while
-     it would cover article content). Open: every title, as a contents list. */
+     Closed: only the current chapter's title shows, over a soft patch of the
+     pane colour that fades out on every side (no hard-edged box over the
+     sidenotes it may pass). Open: every title, as a contents list. */
   .seam-tick span{
-    position: absolute; right: 20px; top: 50%;
+    position: absolute; right: 20px; top: 50%; z-index: 0;
     transform: translate(4px, calc(-50% + var(--dy, 0px)));
-    white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis;
+    /* one layout, open or closed: a title keeps to the gap between the text
+       column and the rail (--seam-room, set by article.js), wrapping when it
+       is too long, so nothing reflows as the list opens or closes */
+    width: max-content; max-width: var(--seam-room, 300px); text-align: right;
+    text-wrap: balance;
     font-family: var(--title-font, inherit); font-weight: 500;
     font-size: 14px; line-height: 1.3;
     color: var(--mute);
-    background: var(--pane-left-bg, var(--bg));
     padding: 2px 4px 2px 10px;
     opacity: 0; pointer-events: none;
     transition: opacity .25s ease, transform .3s cubic-bezier(.2,.7,.2,1), color .25s ease;
   }
+  .seam-tick span::before{
+    content: ''; position: absolute; z-index: -1;
+    inset: -14px -16px -14px -36px;
+    background: var(--pane-left-bg, var(--bg));
+    -webkit-mask-image:
+      linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 12px), transparent),
+      linear-gradient(to bottom, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+    -webkit-mask-composite: source-in;
+            mask-image:
+      linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 12px), transparent),
+      linear-gradient(to bottom, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+            mask-composite: intersect;
+  }
+  .seam.open .seam-tick span::before{ display: none; }
   .seam-tick.passed span{ color: color-mix(in oklab, var(--ink) 70%, var(--mute)); }
   .seam-tick.current span{ color: var(--ink); }
-  .seam-tick.current:not(.covered) span,
+  .seam-tick.current span,
   .seam.open .seam-tick span{ opacity: 1; transform: translate(0, calc(-50% + var(--dy, 0px))); }
-  .seam.open .seam-tick span{ pointer-events: auto; cursor: pointer; }
+  /* with no usable gap (narrow two-column) the closed title stays hidden,
+     and the list's titles run on one line over the text instead */
+  .seam.cramped .seam-tick span{ white-space: nowrap; max-width: 300px; }
+  .seam.cramped:not(.open) .seam-tick span{ opacity: 0; }
+  .seam.open .seam-tick span{
+    pointer-events: auto; cursor: pointer;
+  }
   .seam.open .seam-tick span:hover{ color: var(--ink); }
   /* in the list, the current chapter keeps the tick at full ink */
   .seam-tick.current::before{ width: 13px; background: var(--ink); }

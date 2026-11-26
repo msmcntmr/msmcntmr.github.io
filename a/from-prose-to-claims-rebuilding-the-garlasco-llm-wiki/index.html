@@ -1,0 +1,1334 @@
+<!doctype html>
+<html lang="en" data-tag="software-engineering">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>From Prose to Claims: Rebuilding the Garlasco LLM Wiki — vuotogeometrico</title>
+<meta name="description" content="Part 2 — Why the wiki was rebuilt around quote-anchored claims, and how deterministic scripts took over the bookkeeping" />
+<link rel="canonical" href="https://msmcntmr.github.io/a/from-prose-to-claims-rebuilding-the-garlasco-llm-wiki/" />
+<meta property="og:type" content="article" />
+<meta property="og:site_name" content="vuotogeometrico" />
+<meta property="og:title" content="From Prose to Claims: Rebuilding the Garlasco LLM Wiki" />
+<meta property="og:description" content="Part 2 — Why the wiki was rebuilt around quote-anchored claims, and how deterministic scripts took over the bookkeeping" />
+<meta property="og:url" content="https://msmcntmr.github.io/a/from-prose-to-claims-rebuilding-the-garlasco-llm-wiki/" />
+<meta property="og:image" content="https://msmcntmr.github.io/assets/og-default.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="From Prose to Claims: Rebuilding the Garlasco LLM Wiki" />
+<meta name="twitter:description" content="Part 2 — Why the wiki was rebuilt around quote-anchored claims, and how deterministic scripts took over the bookkeeping" />
+<meta name="twitter:image" content="https://msmcntmr.github.io/assets/og-default.png" />
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+<link rel="alternate" type="application/atom+xml" title="vuotogeometrico" href="https://msmcntmr.github.io/feed.xml" />
+<link rel="stylesheet" href="/assets/shared.css" />
+<script>
+  window.__SF_DEFAULTS = {"typeface":"geist","titleface":"ebgaramond","textSize":18,"leading":1.55,"columnRatio":57,"bodyWidth":72,"palette":"warm-cream","scrim":"light","hover":"underline","panels":"swapped"};
+</script>
+<script src="/assets/shared.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--fs, 14px);
+    line-height: var(--lh, 1.55);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    letter-spacing: -0.005em;
+  }
+  ::selection{ background: var(--ink); color: var(--panel); }
+  a{ color: inherit; text-decoration: none; }
+
+  /* ---------- layout ---------- */
+  .stage{
+    display: grid;
+    grid-template-columns: minmax(0, var(--col-l, 58fr)) minmax(340px, var(--col-r, 42fr));
+    min-height: 100vh;
+    transition: grid-template-columns .55s cubic-bezier(.2,.7,.2,1);
+  }
+  .pane{ padding: 88px clamp(40px, 6vw, 96px) 120px; }
+  .left{ background: var(--pane-left-bg, var(--bg)); transition: background-color .5s ease; }
+  .right{
+    background: var(--pane-right-bg, var(--panel));
+    position: sticky;
+    top: 0;
+    align-self: start;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding-bottom: 88px;
+    transition: background-color .5s ease;
+  }
+  /* a faint animated backdrop in the top half of the pane, fading out towards
+     the middle: falling code on software-engineering articles
+     (assets/rain.js), a photographic one on photography articles
+     (assets/photo.js), a wandering pen trace on random articles
+     (assets/walk.js) */
+  .right > .backdrop{
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 50%;
+    pointer-events: none; z-index: -1;     /* above the pane colour, under its content */
+    color: var(--ink);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 100%);
+  }
+  .right:has(> .backdrop){ isolation: isolate; }
+  @media (max-width: 1024px){ .right > .backdrop{ display: none; } }
+
+  /* ---------- reading rail: progress line in the article's right margin ----
+     A barely-there hairline, fixed to the viewport, sits past the sidenotes;
+     the part of the article on screen is drawn in ink over it. Short ticks mark the
+     chapters and darken once passed; the current chapter's title shows beside
+     its tick, and pointing near the rail lists every chapter.
+     article.js sets --seam-x from the article's right edge. Two-column
+     layout only. */
+  .seam{
+    --a: 0; --b: 0;                  /* 0..1 window on the rail, set by article.js */
+    --seam-pad: 32px;
+    --run: calc(100vh - 2 * var(--seam-pad));
+    position: fixed; left: var(--seam-x, -100px); top: 0;
+    width: 0; height: 100vh;
+    pointer-events: none;
+    z-index: 3;
+    opacity: 0;
+    transition: opacity .8s ease .2s;
+  }
+  .seam.on{ opacity: 1; }
+  /* open list: one backing for the whole rail, solid at the line and fading
+     to nothing towards the article, so the titles read over sidenotes without
+     each sitting on its own hard-edged box */
+  .seam::before{
+    content: ''; position: absolute; top: 0; height: 100vh;
+    right: -24px; width: 272px;
+    background: linear-gradient(to right,
+      transparent,
+      color-mix(in oklab, var(--pane-left-bg, var(--bg)) 85%, transparent) 40px,
+      var(--pane-left-bg, var(--bg)) 80px);
+    opacity: 0; pointer-events: none;
+    transition: opacity .25s ease;
+  }
+  .seam.open::before{ opacity: 1; }
+  /* the rail is ink at low strength, so it reads the same on white and
+     warm-cream (and if the reader swaps the two panes) */
+  /* track and segment share a mask that cuts a short gap at every chapter
+     tick, so the rail reads as one stretch per chapter (set by article.js) */
+  .seam-line{
+    position: absolute; left: -2px; top: 0;
+    width: 4px; height: 100vh;
+    -webkit-mask-image: var(--gaps, none);
+            mask-image: var(--gaps, none);
+  }
+  .seam-track, .seam-fill{
+    position: absolute; left: 1.5px; top: var(--seam-pad);
+    width: 1px;
+  }
+  .seam-track{ height: var(--run); background: color-mix(in oklab, var(--ink) 9%, transparent); }
+  /* the stretch of the article currently on screen; article.js moves its
+     two ends on springs, so it stretches while scrolling and settles back */
+  .seam-fill{
+    left: 1px; width: 2px; border-radius: 1px;
+    top: calc(var(--seam-pad) + var(--run) * var(--a));
+    height: calc(var(--run) * (var(--b) - var(--a)));
+    background: color-mix(in oklab, var(--ink) 55%, transparent);
+  }
+  .seam-ticks{ position: absolute; inset: 0; }
+  .seam-tick{
+    position: absolute; left: 0;
+    top: calc(var(--seam-pad) + var(--run) * var(--at));
+    width: 24px; height: 14px;
+    transform: translate(-50%, -50%);
+    padding: 0; border: 0; background: none; cursor: pointer;
+    pointer-events: auto;
+  }
+  .seam-tick::before{
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 9px; height: 1px; transform: translate(-50%, -50%);
+    background: color-mix(in oklab, var(--ink) 22%, transparent);
+    transition: background-color .4s ease, width .3s cubic-bezier(.2,.7,.2,1);
+  }
+  .seam-tick.passed::before{ background: color-mix(in oklab, var(--ink) 55%, transparent); }
+  .seam-tick:hover::before{ width: 15px; background: var(--ink); }
+  /* hover strip: pointing near the rail opens the full chapter list */
+  .seam-zone{
+    position: absolute; left: -26px; width: 52px; top: 0; height: 100vh;
+    pointer-events: auto;
+  }
+  /* chapter titles sit on the article side, right-aligned against the rail.
+     Closed: only the current chapter's title shows, over a soft patch of the
+     pane colour that fades out on every side (no hard-edged box over the
+     sidenotes it may pass). Open: every title, as a contents list. */
+  .seam-tick span{
+    position: absolute; right: 20px; top: 50%; z-index: 0;
+    transform: translate(4px, calc(-50% + var(--dy, 0px)));
+    /* one layout, open or closed: a title keeps to the gap between the text
+       column and the rail (--seam-room, set by article.js), wrapping when it
+       is too long, so nothing reflows as the list opens or closes */
+    width: max-content; max-width: var(--seam-room, 300px); text-align: right;
+    text-wrap: balance;
+    font-family: var(--title-font, inherit); font-weight: 500;
+    font-size: 14px; line-height: 1.3;
+    color: var(--mute);
+    padding: 2px 4px 2px 10px;
+    opacity: 0; pointer-events: none;
+    transition: opacity .25s ease, transform .3s cubic-bezier(.2,.7,.2,1), color .25s ease;
+  }
+  .seam-tick span::before{
+    content: ''; position: absolute; z-index: -1;
+    inset: -14px -16px -14px -36px;
+    background: var(--pane-left-bg, var(--bg));
+    -webkit-mask-image:
+      linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 12px), transparent),
+      linear-gradient(to bottom, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+    -webkit-mask-composite: source-in;
+            mask-image:
+      linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 12px), transparent),
+      linear-gradient(to bottom, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+            mask-composite: intersect;
+  }
+  .seam.open .seam-tick span::before{ display: none; }
+  .seam-tick.passed span{ color: color-mix(in oklab, var(--ink) 70%, var(--mute)); }
+  .seam-tick.current span{ color: var(--ink); }
+  .seam-tick.current span,
+  .seam.open .seam-tick span{ opacity: 1; transform: translate(0, calc(-50% + var(--dy, 0px))); }
+  /* with no usable gap (narrow two-column) the closed title stays hidden,
+     and the list's titles run on one line over the text instead */
+  .seam.cramped .seam-tick span{ white-space: nowrap; max-width: 300px; }
+  .seam.cramped:not(.open) .seam-tick span{ opacity: 0; }
+  .seam.open .seam-tick span{
+    pointer-events: auto; cursor: pointer;
+  }
+  .seam.open .seam-tick span:hover{ color: var(--ink); }
+  /* in the list, the current chapter keeps the tick at full ink */
+  .seam-tick.current::before{ width: 13px; background: var(--ink); }
+  @media (max-width: 1024px){ .seam{ display: none; } }
+
+  /* ---------- mark ---------- */
+  .mark{
+    display: inline-block;
+    width: 32px; height: 32px;
+    color: var(--ink);
+    margin-bottom: 72px;
+    overflow: visible;
+  }
+  .mark svg{ display:block; width:100%; height:100%; overflow: visible; }
+
+  /* ---------- back nav ---------- */
+  .back{
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--fs, 14px);
+    color: var(--mute);
+    margin-bottom: 64px;
+    transition: color .35s ease;
+  }
+  .back .arr{
+    display: inline-block;
+    transition: transform .4s cubic-bezier(.2,.7,.2,1);
+  }
+  .back:hover{ color: var(--ink); }
+  .back:hover .arr{ transform: translateX(-4px); }
+
+  /* ---------- article meta + title ---------- */
+  .meta{
+    color: var(--mute);
+    font-size: var(--fs, 14px);
+    margin-bottom: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ttl{
+    font-family: var(--title-font, var(--sans));
+    font-weight: 500;
+    font-size: clamp(22px, 1.6vw + 12px, 30px);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 0 0 56px;
+    max-width: 22ch;
+    text-wrap: balance;
+  }
+  /* per-face nudges so each option reads at its best */
+  body[data-titleface="instrument"]   .ttl{ font-weight: 400; font-style: italic; letter-spacing: -0.002em; font-size: clamp(28px, 2vw + 14px, 40px); line-height: 1.1; }
+  body[data-titleface="newsreader"]   .ttl{ font-weight: 400; letter-spacing: -0.005em; font-size: clamp(26px, 1.9vw + 13px, 36px); line-height: 1.15; }
+  body[data-titleface="bricolage"]    .ttl{ font-weight: 600; letter-spacing: -0.02em; font-size: clamp(28px, 2vw + 14px, 40px); line-height: 1.05; font-variation-settings: "opsz" 96; }
+  body[data-titleface="ebgaramond"]   .ttl{ font-weight: 500; letter-spacing: 0; font-size: clamp(26px, 1.9vw + 13px, 36px); line-height: 1.18; }
+  body[data-titleface="grotesk"]      .ttl{ font-weight: 500; letter-spacing: -0.015em; }
+  body[data-titleface="syne"]         .ttl{ font-weight: 600; letter-spacing: -0.015em; }
+
+  /* ---------- body (grid: text + sidenotes) ---------- */
+  .body{
+    display: grid;
+    grid-template-columns: minmax(0, var(--body-ch, 48ch)) 160px;
+    column-gap: 48px;
+    align-items: start;
+    font-size: calc(var(--fs, 14px) + 1px);
+    line-height: var(--lh, 1.55);
+  }
+  /* everything flows in the text column; only sidenotes use column 2
+     (lists and rules used to auto-place into the 160px sidenote track) */
+  .body > :not(.sidenote){ grid-column: 1; }
+
+  .body ul, .body ol{
+    margin: 0 0 1.2em;
+    padding-left: 1.3em;
+    line-height: calc(var(--lh, 1.55) * 1.08);
+  }
+  .body li{ margin-bottom: .5em; padding-left: .2em; }
+  .body li::marker{ color: var(--mute); }
+  .body li a[href]{ overflow-wrap: anywhere; }
+  .body hr{
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 1.2em 0 2.4em;
+  }
+  .body hr + :is(h2, h3){ margin-top: 0; }
+
+  /* tables: scroll inside their own box on narrow screens */
+  .body .table-wrap{
+    margin: 12px 0 36px;
+    overflow-x: auto;
+  }
+  .body table{
+    width: 100%;
+    min-width: 30em; /* below this, scroll inside .table-wrap instead of crushing columns */
+    border-collapse: collapse;
+    font-size: calc(var(--fs, 14px) * 0.85);
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+  }
+  .body th, .body td{
+    padding: 8px 12px 8px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    text-align: left;
+  }
+  .body thead th{
+    font-weight: 500;
+    color: var(--mute);
+    border-bottom-color: color-mix(in oklab, var(--ink) 35%, transparent);
+  }
+  .body th:last-child, .body td:last-child{ padding-right: 0; }
+  .body td code{ white-space: nowrap; }
+  /* endnotes: everything after a final rule + heading (heading keeps its size) */
+  .body hr.endnotes-rule ~ :is(p, ul, ol, blockquote){
+    font-size: calc(var(--fs, 14px) * 0.85);
+  }
+  .body hr.endnotes-rule ~ :is(ul, ol) li{ margin-bottom: .35em; }
+  .body > .sidenote{ grid-column: 2; }
+  .sidenote a, .sidenote code{ overflow-wrap: anywhere; }
+  /* two-column layout: a note hangs beside its paragraph without making
+     the grid row taller (which opened gaps between sections); article.js
+     nudges a note down only if it would overlap the previous one */
+  @media (min-width: 1101px){
+    .body > .sidenote{
+      height: 0;
+      margin-bottom: 0;
+      overflow: visible;
+      position: relative;
+    }
+  }
+
+  .body p{
+    margin: 0 0 1.2em;
+    text-wrap: pretty;
+    line-height: calc(var(--lh, 1.55) * 1.08);
+  }
+  .body p:last-child{ margin-bottom: 0; }
+
+  .body blockquote{
+    margin: 0 0 1.2em;
+    padding: 2px 0 2px 20px;
+    border-left: 2px solid color-mix(in oklab, var(--ink) 28%, transparent);
+    font-style: italic;
+  }
+  .body blockquote em{ font-style: normal; }
+  .body blockquote > :last-child{ margin-bottom: 0; }
+  .body blockquote li:last-child{ margin-bottom: 0; }
+
+  /* section headings: same face as the article title, quieter than it */
+  .body h2, .body h3{
+    font-family: var(--title-font, var(--sans));
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0;
+    text-wrap: balance;
+    margin: 1.5em 0 0.7em; /* + the preceding paragraph's 1.2em */
+  }
+  .body h2{ font-size: calc(var(--fs, 14px) * 1.4); }
+  .body h3{ font-size: calc(var(--fs, 14px) * 1.15); }
+  body[data-titleface="instrument"] .body :is(h2, h3){ font-weight: 400; font-style: italic; }
+  body[data-titleface="newsreader"] .body :is(h2, h3){ font-weight: 400; }
+  .body em{ font-style: italic; }
+
+  /* ---------- prose links ----------
+     Resting: hairline rule at 30% ink, like the index entries.
+     Hover: an ink line sweeps in from the left over it. Painted with
+     background gradients (not ::after) so it survives line wraps. */
+  .body a[href]{
+    color: inherit;
+    text-decoration: none;
+    padding-bottom: 0.12em;
+    background-image:
+      linear-gradient(currentColor, currentColor),
+      linear-gradient(color-mix(in oklab, currentColor 30%, transparent),
+                      color-mix(in oklab, currentColor 30%, transparent));
+    background-repeat: no-repeat;
+    background-position: 0 100%, 0 100%;
+    background-size: 0% 1px, 100% 1px;
+    transition: background-size .45s cubic-bezier(.2,.7,.2,1);
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+  .body a[href]:hover,
+  .body a[href]:focus-visible{ background-size: 100% 1px, 100% 1px; }
+
+  /* the build marks outbound links target="_blank"; they get the arrow
+     used elsewhere on the site, so "leaves the page" is visible up front */
+  .body a[target="_blank"]::after{
+    content: "\2197";
+    display: inline-block;
+    font-size: .78em;
+    line-height: 1;
+    margin-left: .18em;
+    vertical-align: .15em;
+    color: var(--mute);
+    transform: translate(-1px, 1px);
+    transition: transform .35s cubic-bezier(.2,.7,.2,1), color .25s ease;
+  }
+  .body a[target="_blank"]:hover::after{
+    color: var(--ink);
+    transform: translate(0, 0);
+  }
+
+  /* footnote markers keep their own (underline-free) treatment */
+  .body sup.fn-ref a[href]{
+    background-image: none;
+    padding-bottom: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .body a[href], .body a[target="_blank"]::after{ transition: none; }
+  }
+
+  /* ---------- footnote markers ---------- */
+  sup.fn-ref{
+    font-size: 0.7em;
+    line-height: 0;
+    vertical-align: super;
+    padding: 0 1px 0 2px;
+  }
+  sup.fn-ref a{
+    color: var(--mute);
+    border-bottom: 1px solid transparent;
+    transition: color .2s ease, border-color .2s ease;
+    font-variant-numeric: tabular-nums;
+  }
+  sup.fn-ref a:hover,
+  sup.fn-ref a.is-hover{
+    color: var(--ink);
+  }
+
+  /* sentence wrappers (for highlight-on-footnote-hover) */
+  .body p .sent{
+    border-radius: 2px;
+    padding: 1px 2px;
+    margin: 0 -2px;
+    background-color: transparent;
+    box-shadow: inset 0 0 0 0 transparent;
+    transition: background-color .25s ease, box-shadow .25s ease;
+  }
+  .body p .sent.is-hover-sent{
+    background-color: color-mix(in oklab, var(--ink) 9%, transparent);
+  }
+
+  /* ---------- sidenotes ---------- */
+  .sidenote{
+    font-size: calc(var(--fs, 14px) / 2 + 5px); /* 16→13, 18→14, 20→15 */
+    line-height: 1.5;
+    color: var(--mute);
+    margin: 0 0 24px;
+    font-variant-numeric: tabular-nums;
+    padding-top: 4px;
+    border-top: 1px solid var(--line);
+    transition: color .25s ease, border-color .25s ease;
+  }
+  .sidenote .num{
+    display: inline-block;
+    margin-right: 6px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .sidenote.is-hover{ color: var(--ink); border-top-color: var(--ink); }
+
+  /* ---------- figures (images) ---------- */
+  figure.photo{
+    margin: 28px 0 36px;
+    padding: 0;
+    cursor: zoom-in;
+    display: block;
+  }
+  figure.photo .ph{
+    width: 100%;
+    aspect-ratio: var(--ratio, 4/3);
+    overflow: hidden;
+    position: relative;
+    background: var(--panel);
+    transition: transform .6s cubic-bezier(.2,.7,.2,1);
+  }
+  figure.photo:hover .ph{ transform: translateY(-2px); }
+  figure.photo .ph picture{ display: contents; }
+  figure.photo .ph img{
+    display: block; width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  figure.photo .ph.placeholder{
+    background:
+      repeating-linear-gradient(
+        135deg,
+        color-mix(in oklab, var(--ink) 6%, transparent) 0 1px,
+        transparent 1px 12px
+      ),
+      var(--tone, color-mix(in oklab, var(--panel) 80%, var(--ink) 4%));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  figure.photo .ph.placeholder .ph-label{
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--mute);
+    background: var(--panel);
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+  }
+  figure.photo figcaption{
+    margin-top: 14px;
+    /* scales with --fs but at HALF rate: 16→13, 18→14, 20→15 */
+    font-size: calc(var(--fs, 14px) / 2 + 5px);
+    line-height: 1.55;
+    color: var(--mute);
+    display: grid;
+    gap: 6px;
+    max-width: 60ch;
+  }
+  figure.photo figcaption .cap-title{
+    color: var(--ink);
+    font-size: calc(var(--fs, 14px) / 2 + 6px);
+  }
+  figure.photo figcaption .cap-caption{
+    font-style: italic;
+    text-wrap: pretty;
+  }
+  figure.photo figcaption .cap-zoom{
+    justify-self: start;
+    margin-top: 2px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: .55;
+    transition: opacity .25s ease, color .25s ease;
+  }
+  figure.photo:hover figcaption .cap-zoom{ opacity: 1; color: var(--ink); }
+
+  /* ---------- abstract (frontmatter "abstract:") ---------- */
+  .ttl:has(+ .abstract){ margin-bottom: 20px; }
+  .abstract{
+    margin: 0 0 56px;
+    max-width: min(var(--body-ch, 48ch), 100%);
+    color: color-mix(in oklab, var(--ink) 78%, var(--bg));
+    font-size: calc(var(--fs, 14px) * 1.2);
+    line-height: 1.4;
+    text-wrap: pretty;
+  }
+
+  /* ---------- mermaid diagrams ---------- */
+  figure.diagram{
+    margin: 12px 0 36px;
+    padding: 8px 0;
+    border: none;
+    background: transparent;
+    overflow-x: auto;
+  }
+  figure.diagram pre.mermaid{
+    margin: 0;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--mute);
+    white-space: pre;
+  }
+  figure.diagram pre.mermaid[data-rendered]{
+    display: flex;
+    justify-content: safe center; /* plain center clips the left edge of an overflowing diagram */
+    white-space: normal;
+  }
+  figure.diagram svg{ width: 100%; height: auto; background: transparent !important; }
+
+  /* ---------- code blocks (IDE-style) ---------- */
+  figure.ide{
+    margin: 12px 0 36px; /* + the preceding paragraph's 1.2em ≈ 36px above */
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--panel);
+    color: var(--ink);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: calc(var(--fs, 14px) / 2 + 5px); /* 16→13, 18→14, 20→15 */
+    line-height: 1.7;
+  }
+  figure.ide .ide-head{
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in oklab, var(--bg) 55%, var(--ink) 5%);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--mute);
+  }
+  figure.ide .ide-head .file{ color: var(--ink); }
+  figure.ide .ide-head .dot{
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--mute); opacity: .55;
+  }
+  figure.ide .ide-head .lang{
+    margin-left: auto;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 9.5px;
+  }
+  figure.ide .ide-body{
+    overflow-x: auto;
+    padding: 12px 0;
+    /* one shared column as wide as the longest line (never narrower than the
+       box), so every row's stripe reaches the end when scrolled */
+    display: grid;
+    grid-template-columns: minmax(max-content, 1fr);
+  }
+  figure.ide .ln{
+    display: grid;
+    grid-template-columns: 52px 1fr;
+    --row-bg: transparent;
+    background: var(--row-bg);
+    min-width: max-content;
+  }
+  figure.ide .ln:nth-child(even){ --row-bg: color-mix(in oklab, var(--panel) 98%, var(--ink) 2%); }
+  figure.ide .ln:hover{ --row-bg: color-mix(in oklab, var(--ink) 5%, transparent); }
+  figure.ide .num{
+    position: sticky;
+    left: 0;
+    /* opaque: it is sticky, so scrolled code passes underneath it */
+    background: linear-gradient(var(--row-bg), var(--row-bg)), var(--panel);
+    text-align: right;
+    padding: 0 14px 0 8px;
+    color: color-mix(in oklab, var(--mute) 50%, var(--panel));
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+    border-right: 1px solid color-mix(in oklab, var(--line) 60%, transparent);
+    z-index: 1;
+  }
+  figure.ide .src{
+    padding: 0 18px 0 16px;
+    white-space: pre;
+  }
+  /* syntax tokens — palette-driven where possible */
+  figure.ide .t-c{ color: color-mix(in oklab, var(--ink) 40%, transparent); font-style: italic; }
+  figure.ide .t-s{ color: oklch(0.50 0.10 145); }       /* string — moss green */
+  figure.ide .t-k{ color: var(--ink); font-weight: 600; }
+  figure.ide .t-n{ color: oklch(0.55 0.10 60); }        /* number — warm brown */
+  figure.ide .t-v{ color: oklch(0.50 0.13 250); }       /* identifier — steel blue */
+  figure.ide .t-t{ color: oklch(0.50 0.10 295); }       /* type — soft violet */
+
+  /* ---------- prev/next ---------- */
+  .pager{
+    margin-top: 96px;
+    padding-top: 28px;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .pager a{
+    display: block;
+    color: var(--mute);
+    font-size: var(--fs, 14px);
+    transition: color .35s ease, transform .4s cubic-bezier(.2,.7,.2,1);
+  }
+  .pager a:hover{ color: var(--ink); }
+  .pager .label{
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    opacity: .6;
+  }
+  .pager .next{ text-align: right; }
+  .pager .prev:hover{ transform: translateX(-4px); }
+  .pager .next:hover{ transform: translateX(4px); }
+  .pager .empty{ visibility: hidden; }
+
+  /* ---------- right pane (identity + about) ---------- */
+  .who .name{ font-weight: 500; font-size: var(--fs, 14px); }
+  .who .role{ font-weight: 400; font-size: var(--fs, 14px); color: var(--mute); }
+  /* the word of the role line standing for this article's tag, in full ink */
+  .who .role .role-word.on{ color: var(--ink); }
+
+  .about{
+    max-width: 38ch;
+    font-size: var(--fs, 14px);
+    line-height: var(--lh, 1.55);
+  }
+  .about p{ margin: 0 0 16px; }
+  .about p:last-child{ margin-bottom: 0; }
+  .about .email{ display: inline-block; margin-top: 28px; position: relative; }
+  .about .email::after{
+    content:""; position:absolute; left:0; right:0; bottom:1px;
+    height:1px; background:currentColor; opacity:.35;
+    transition: opacity .35s ease;
+  }
+  .about .email:hover::after{ opacity: 1; }
+
+  /* ---------- entry stagger ---------- */
+  .fade > *{
+    opacity: 0;
+    transform: translateY(8px);
+    animation: rise .7s cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .fade > *:nth-child(1){ animation-delay: 20ms }
+  .fade > *:nth-child(2){ animation-delay: 100ms }
+  .fade > *:nth-child(3){ animation-delay: 180ms }
+  .fade > *:nth-child(4){ animation-delay: 260ms }
+  .fade > *:nth-child(5){ animation-delay: 340ms }
+  @keyframes rise{ to{ opacity:1; transform:none } }
+
+  /* ---------- fullscreen modal ---------- */
+  .modal[hidden]{ display:none; }
+  .modal{
+    position: fixed; inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    cursor: zoom-out;
+  }
+  /* explicit positive stacking: without it Chrome drops the backdrop blur
+     once the scrim's fade-in transition ends (blurred, then sharp again) */
+  .modal .scrim{
+    position: absolute; inset: 0;
+    z-index: 1;
+    background: var(--scrim-bg, rgba(0,0,0,0.72));
+    opacity: 0;
+    transition: opacity .35s ease;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .modal.open .scrim{ opacity: 1; }
+  .modal-inner{
+    position: relative;
+    z-index: 2;
+    width: min(1400px, 94vw);
+    height: min(820px, 88vh);
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    background: var(--panel);
+    box-shadow: 0 40px 80px -20px rgba(0,0,0,.4);
+    opacity: 0;
+    transform: translateY(12px) scale(.985);
+    transition: opacity .45s cubic-bezier(.2,.7,.2,1), transform .55s cubic-bezier(.2,.7,.2,1);
+    cursor: default;
+  }
+  .modal.open .modal-inner{ opacity: 1; transform: none; }
+
+  .modal-img{
+    background: color-mix(in oklab, var(--bg) 92%, var(--ink) 6%);
+    overflow: hidden;
+    position: relative;
+  }
+  .modal-img .ph:has(img){ cursor: zoom-in; }
+  .modal-img.panning .ph{ cursor: none; }
+  .modal-img .pan-hint{
+    position: absolute;
+    left: 14px; bottom: 14px;
+    z-index: 3;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: color-mix(in oklab, var(--panel) 86%, transparent);
+    padding: 6px 9px;
+    border: 1px solid var(--line);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity .35s ease, transform .35s ease;
+  }
+  .modal-img:hover .pan-hint{ opacity: 1; transform: none; }
+  .modal-img.panning .pan-hint{
+    opacity: 1; transform: none;
+    background: var(--ink);
+    color: var(--panel);
+    border-color: var(--ink);
+  }
+  .modal-img .pan-cursor{
+    position: absolute;
+    width: 26px; height: 26px;
+    border: 1px solid var(--panel);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.35);
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    transition: opacity .2s ease;
+    z-index: 4;
+    mix-blend-mode: difference;
+  }
+  .modal-img.panning .pan-cursor{ opacity: 1; }
+  .modal-img .ph{
+    width: 100%; height: 100%;
+    display: flex; align-items:center; justify-content:center;
+  }
+  .modal-img .ph picture{ display: contents; }
+  .modal-img .ph.placeholder{
+    background:
+      repeating-linear-gradient(
+        135deg,
+        color-mix(in oklab, var(--ink) 5%, transparent) 0 1px,
+        transparent 1px 14px
+      ),
+      var(--tone, color-mix(in oklab, var(--panel) 80%, var(--ink) 4%));
+  }
+  .modal-img .ph.placeholder .ph-label{
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mute);
+    background: var(--panel);
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+  }
+  .modal-img img{
+    width: 100%; height: 100%; object-fit: contain;
+    object-position: 50% 50%;
+    background: transparent;
+    transition: object-position .12s linear;
+  }
+  .modal-img.panning img{
+    object-fit: cover;
+    transition: none;
+  }
+
+  .modal-meta{
+    padding: 56px 56px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    color: var(--ink);
+  }
+  .modal-meta .eyebrow{
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mute);
+    margin-bottom: 24px;
+  }
+  .modal-meta h2{
+    font-weight: 500;
+    font-size: calc(var(--fs, 14px) / 2 + 14px); /* 16→22, 20→24 */
+    line-height: 1.25;
+    margin: 0 0 16px;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+  .modal-meta .caption{
+    margin: 0 0 24px;
+    color: var(--ink);
+    font-size: calc(var(--fs, 14px) / 2 + 7px); /* 16→15, 18→16, 20→17 */
+    line-height: 1.55;
+    font-style: italic;
+  }
+  .modal-meta .desc{
+    margin: 0 0 36px;
+    color: var(--ink);
+    font-size: calc(var(--fs, 14px) / 2 + 7px);
+    line-height: 1.65;
+  }
+  .modal-meta .desc p{
+    margin: 0 0 1em;
+    text-wrap: pretty;
+  }
+  .modal-meta .desc p:last-child{ margin-bottom: 0; }
+  .modal-meta dl.tech{
+    margin: auto 0 0;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 24px;
+    row-gap: 10px;
+    font-size: 12.5px;
+  }
+  .modal-meta dl.tech dt{
+    color: var(--mute);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 10.5px;
+    padding-top: 2px;
+  }
+  .modal-meta dl.tech dd{ margin: 0; }
+
+  @media (max-width: 1024px){
+    .modal-inner{
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(180px, 42vh) 1fr;
+      width: 94vw; height: 92vh;
+    }
+    .modal-meta{ padding: 24px; }
+    .modal-meta h2{ font-size: 20px; }
+    .modal-meta dl.tech{ margin-top: 16px; }
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1100px){
+    .body{
+      display: block;
+      max-width: min(var(--body-ch, 56ch), 100%);
+    }
+    .body > .sidenote{
+      display: block;
+      margin: -4px 0 18px;
+      padding: 8px 0 0;
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+    }
+  }
+
+  @media (max-width: 1024px){
+    .pane{ padding: 40px clamp(20px, 5vw, 44px) 64px; }
+    .back{ margin-bottom: 32px; }
+    .ttl{ margin-bottom: 32px; }
+    .abstract{ margin-bottom: 32px; }
+    .pager{ margin-top: 64px; grid-template-columns: 1fr; gap: 20px; }
+    .pager .next{ text-align: left; }
+    .pager .next:hover{ transform: translateX(-4px); }
+    figure.photo{ margin: 20px 0 28px; }
+  }
+
+  /* phones: keep the title > heading > abstract > body hierarchy when
+     the title itself shrinks to its 26px floor */
+  @media (max-width: 640px){
+    .body h2{ font-size: calc(var(--fs, 14px) * 1.25); }
+    .body h3{ font-size: calc(var(--fs, 14px) * 1.1); }
+    .abstract{ font-size: calc(var(--fs, 14px) * 1.12); }
+    figure.diagram{ padding: 16px 8px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation: none !important; transition: none !important; }
+    .fade > *{ opacity:1; transform:none; }
+  }
+</style>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"From Prose to Claims: Rebuilding the Garlasco LLM Wiki","datePublished":"2026-11-26","description":"Part 2 — Why the wiki was rebuilt around quote-anchored claims, and how deterministic scripts took over the bookkeeping","url":"https://msmcntmr.github.io/a/from-prose-to-claims-rebuilding-the-garlasco-llm-wiki/","author":{"@type":"Person","name":"vuotogeometrico"},"image":"https://msmcntmr.github.io/assets/og-default.png"}</script>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ====================== LEFT — article ====================== -->
+  <section class="pane left">
+    <div class="seam" data-seam>
+      <div class="seam-line">
+        <div class="seam-track"></div>
+        <div class="seam-fill"></div>
+      </div>
+      <div class="seam-ticks"></div>
+    </div>
+    <div class="fade">
+      <a class="back" href="/"><span class="arr">←</span><span>vuotogeometrico</span></a>
+      <div class="meta" id="meta">November 26, 2026</div>
+      <h1 class="ttl" id="ttl">From Prose to Claims: Rebuilding the Garlasco LLM Wiki</h1>
+<p class="abstract">Part 2 — Why the wiki was rebuilt around quote-anchored claims, and how deterministic scripts took over the bookkeeping</p>
+      <article class="body" id="body">
+<p><span class="sent">In <a href="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/">the first part</a> I described how an investigation wiki on the murder of Chiara Poggi came to life, starting from an idea file by Andrej Karpathy and growing, one ingest at a time, into a vault of a few hundred source pages, people, pieces of evidence and contradictions, all of it written and maintained by a language model.</span><span class="sent"> It ended at the point where that first design began to break, not because the model wrote badly, but because everything that had to stay consistent across the whole corpus (indexes, chronologies, the timeline, even the check that the work had been done) lived in prose, and prose kept by hand does not scale, even when the hand belongs to a machine that never gets bored.</span></p>
+<p><span class="sent">This second part is about what came next: the rework that turned the wiki into something closer to a database, the small idea it rests on, the scripts that now do the bookkeeping, and the long and rather tedious work of carrying several months of old prose over to the new structure.</span><span class="sent" data-fns="1"> As before, you can browse <a href="https://msmcntmr.github.io/garlasco-llm-wiki/">the public wiki</a> while you read, and everything I quote comes from the repository<sup class="fn-ref"><a href="#fn-1" data-fn="1">1</a></sup>.</span></p>
+<aside class="sidenote" id="fn-1" data-fn="1"><span class="num">1</span>The vault&#39;s git history is the source for every count, size and excerpt in this article. The vault itself lives in a repository of its own, and a companion repository builds the <a href="https://msmcntmr.github.io/garlasco-llm-wiki/">published site</a> from it.</aside>
+<h2>1. Patching the old design first</h2>
+<p><span class="sent">I did not start with a rewrite.</span><span class="sent"> When the problems described at the end of Part 1 became evident, my first reaction was the one most of us have with a codebase that has started to creak, which is to fix the worst symptoms one by one and see whether that is enough.</span></p>
+<p><span class="sent">The checklist was the first thing to go.</span><span class="sent"> Instead of asking the model to review its own work, I wrote a script, <code>verify-ingest.py</code>, that looked at what was staged in git and checked it deterministically: a log entry had to be present, the relationship arrays could not be empty when the body linked out, tags could not be bare integers, the frontmatter had to match the template, and the category files had to be updated together with the pages they indexed.</span><span class="sent"> A pre-commit hook ran it, so an ingest that did not pass simply could not be committed.</span><span class="sent"> The duplicate check went next, since &quot;read the last twenty log entries&quot; was useless against a backlog of seven hundred articles ingested out of order, and it became the most boring question possible, that is, whether the source page already existed on disk.</span><span class="sent"> The log, which had become a second copy of the wiki, was closed as a historical archive and replaced by one file per year in a terse format that only records bookkeeping.</span><span class="sent"> And the timeline, which every ingest had to read in full just to find where a new date belonged, was split into one file per event year with a thin hub listing them.</span></p>
+<p><span class="sent">Each of these fixes helped, and yet all of them were of the same kind: the scripts could notice that an edit was missing, but they could not produce it.</span><span class="sent"> The categories were still written by hand, the chronologies on people pages were still prose, and every timeline entry was still placed, by the model, in the right position of the right file.</span><span class="sent"> What I had built, to be honest, was a hand-maintained wiki with a linter, whose job was to notice when the hand slipped.</span></p>
+<p><span class="sent">There was one more symptom, and it is the one that convinced me the problem was structural.</span><span class="sent"> The case overview, the page every session read first, had grown a section of &quot;recent updates&quot; to which every ingest appended a few paragraphs, and by then that section made up 93% of the page, so that a new session spent around fifty thousand tokens reading a changelog before doing anything useful.</span><span class="sent"> Moving it to an archive was easy enough, but it showed the same pattern once more, since the model had been asked to keep the page current and, lacking any better place to put the news, had kept adding to it.</span></p>
+<h2>2. The idea: write once, derive the rest</h2>
+<p><span class="sent">The way out came from looking at the wiki the way I would look at a software project.</span><span class="sent"> In a codebase there is a clear line between what people write (the source code) and what is produced from it (the compiled binaries, the generated documentation, the indexes your editor builds), and nobody would ever think of editing a compiled file by hand and hoping it stays in sync with the source.</span><span class="sent"> The first wiki had no such line, and the timeline, the category indexes and the chronology on each person&#39;s page were all, in effect, build artifacts maintained by hand.</span></p>
+<p><span class="sent">So the rework, which in the repository goes by the name of v2, rests on a single decision: everything redundant in the wiki is generated, and only what requires judgment is written.</span><span class="sent"> What is redundant is easy to spot once you look for it, because it is everything that repeats a fact already stated somewhere else (the timeline entry repeating what a source says, the person page listing the same event again, the index listing the page), while what requires judgment is the summary of a source, the analysis of a contradiction, the argument for or against a hypothesis.</span></p>
+<p><span class="sent">For the generator to work, though, the facts had to stop living inside paragraphs, and needed a structured home of their own, a file that a script could read without having to understand Italian prose.</span><span class="sent"> That home is the claims ledger, one YAML file per source, and the architecture became the following:</span></p>
+<figure class="diagram"><pre class="mermaid">flowchart TB
+    RAW["raw/&lt;br/&gt;immutable sources"] --&gt;|ingest| SP["wiki/sources/&lt;br/&gt;source summary"]
+    RAW --&gt;|"ingest:&lt;br/&gt;verbatim quotes"| CL["claims/&lt;br/&gt;one YAML per source"]
+    CL --&gt;|build.py| GEN["generated views&lt;br/&gt;timeline, indexes, links"]
+    CL --&gt;|distill| CUR["curated prose&lt;br/&gt;pages, hypotheses"]
+    CL --&gt;|query.py| DB[("SQLite&lt;br/&gt;cache")]
+    CUR --&gt; SITE["published wiki"]
+    GEN --&gt; SITE</pre></figure>
+<p><span class="sent">The raw sources are still immutable, and each ingest still writes a source page, which remains the human-readable summary.</span><span class="sent"> Next to it, though, the ingest now writes a claims file, and from those claims a script called <code>build.py</code> derives everything that used to be maintained by hand.</span><span class="sent"> The prose that requires judgment (the profile of a person, the reasoning on a piece of evidence, the state of a hypothesis) is revised separately, in sessions called distill that I will get to later.</span><span class="sent"> The schema document puts it in one sentence, which is probably the most important rule in the whole vault:</span></p>
+<blockquote><p>Never hand-edit generated content. To change it, edit the claims (or the page frontmatter), then run the build.</p></blockquote>
+<h2>3. Anatomy of a claim</h2>
+<p><span class="sent">A claim is a single statement made by a source, recorded with enough structure for a script to place it, check it and render it.</span><span class="sent"> This is the beginning of the claims file for a Panorama article from May 2025, about the palm print found on the wall of the basement stairs, the one known in the case as &quot;impronta 33&quot;:</span></p>
+<figure class="ide" data-lang="yaml">
+<div class="ide-head"><span class="dot"></span><span class="file">claims/2025-05-20--delitto-garlasco-la-perizia-dei-pm-c-era-un-impronta-di-andrea-sempio-vicino-al-cadavere-di-chiara.yaml</span><span class="lang">YAML</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">schema: <span class="t-n">1</span></span></div>
+<div class="ln"><span class="num">2</span><span class="src">source: <span class="t-n">2025</span>-<span class="t-n">05</span>-<span class="t-n">20</span>--delitto-garlasco-la-perizia-dei-pm-c-era-un-impronta-di-andrea-sempio-vicino-al-cadavere-di-chiara</span></div>
+<div class="ln"><span class="num">3</span><span class="src">raw: <span class="t-s">"raw/articles/panorama/2025/2025-05-20--delitto-garlasco,-la-perizia-dei-pm-….md"</span></span></div>
+<div class="ln"><span class="num">4</span><span class="src">claims:</span></div>
+<div class="ln"><span class="num">5</span><span class="src">  - id: c01</span></div>
+<div class="ln"><span class="num">6</span><span class="src">    type: fatto</span></div>
+<div class="ln"><span class="num">7</span><span class="src">    date: <span class="t-s">"~2025-05-20"</span></span></div>
+<div class="ln"><span class="num">8</span><span class="src">    subjects:</span></div>
+<div class="ln"><span class="num">9</span><span class="src">      - people/andrea-sempio</span></div>
+<div class="ln"><span class="num">10</span><span class="src">      - evidence/impronta-sangue-parete-cantina</span></div>
+<div class="ln"><span class="num">11</span><span class="src">    text: <span class="t-s">"Una nuova perizia disposta dalla Procura di Pavia attribuisce ad Andrea Sempio l'impronta della mano rinvenuta accanto al corpo di Chiara Poggi, dettaglio finora inedito a quasi 18 anni dall'omicidio."</span></span></div>
+<div class="ln"><span class="num">12</span><span class="src">    quote: <span class="t-s">"la nuova perizia disposta dalla Procura di Pavia accende i riflettori su un dettaglio finora inedito"</span></span></div>
+<div class="ln"><span class="num">13</span><span class="src">    confidence: claimed</span></div>
+<div class="ln"><span class="num">14</span><span class="src">    attribution: <span class="t-s">"Procura di Pavia, notizia rilanciata dai social del Tg1"</span></span></div>
+<div class="ln"><span class="num">15</span><span class="src">    timeline: <span class="t-k">true</span></span></div>
+<div class="ln"><span class="num">16</span><span class="src">    title: <span class="t-s">"Perizia della Procura attribuisce ad Andrea Sempio l'impronta accanto al corpo"</span></span></div>
+<div class="ln"><span class="num">17</span><span class="src">​</span></div>
+<div class="ln"><span class="num">18</span><span class="src">  - id: c02</span></div>
+<div class="ln"><span class="num">19</span><span class="src">    type: fatto</span></div>
+<div class="ln"><span class="num">20</span><span class="src">    date: <span class="t-s">"2007"</span></span></div>
+<div class="ln"><span class="num">21</span><span class="src">    subjects:</span></div>
+<div class="ln"><span class="num">22</span><span class="src">      - evidence/impronta-sangue-parete-cantina</span></div>
+<div class="ln"><span class="num">23</span><span class="src">      - locations/via-pascoli-garlasco</span></div>
+<div class="ln"><span class="num">24</span><span class="src">    text: <span class="t-s">"L'impronta è di tipo palmare e fu classificata «numero 33» nella documentazione redatta dai carabinieri del RIS all'interno della villetta di via Pascoli a Garlasco; all'epoca delle prime indagini non venne associata a nessun soggetto."</span></span></div>
+<div class="ln"><span class="num">25</span><span class="src">    quote: <span class="t-s">"Classificata come “ **numero 33**” nella documentazione redatta dai carabinieri del Ris all’interno della villetta di via Pascoli a Garlasco"</span></span></div>
+<div class="ln"><span class="num">26</span><span class="src">    confidence: claimed</span></div>
+<div class="ln"><span class="num">27</span><span class="src">    timeline: <span class="t-k">false</span></span></div>
+</div>
+</figure>
+<p><span class="sent">Every field is there for a reason, and most of the reasons come straight from the failures of the first design:</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Field</th><th>What it holds</th><th>Why it exists</th></tr></thead>
+<tbody>
+<tr><td><code>id</code></td><td><code>c01</code>, <code>c02</code>, … unique in the file</td><td>gives each claim a global address, <code>&lt;source&gt;#c01</code>, that pages can cite</td></tr>
+<tr><td><code>type</code></td><td><code>fatto</code>, <code>dichiarazione</code>, <code>inferenza</code>, <code>ipotesi</code>, <code>contesto</code></td><td>the inline labels of Part 1, turned into a closed list</td></tr>
+<tr><td><code>date</code></td><td>the date of the event, not of the article, with <code>~</code> for approximate and <code>/</code> for ranges</td><td>places the claim in chronologies and in the timeline</td></tr>
+<tr><td><code>subjects</code></td><td>the pages the claim is about, such as <code>people/andrea-sempio</code></td><td>every subject must be an existing page, so links cannot break</td></tr>
+<tr><td><code>text</code></td><td>a standalone Italian sentence</td><td>what gets rendered, readable without opening the source</td></tr>
+<tr><td><code>quote</code></td><td>a verbatim excerpt of the raw file</td><td>the anchor that a script can verify</td></tr>
+<tr><td><code>confidence</code></td><td><code>verified</code>, <code>claimed</code>, <code>inferred</code>, <code>speculative</code>, <code>unknown</code></td><td>the epistemic status of this claim, independent of the source&#39;s reliability</td></tr>
+<tr><td><code>speaker</code></td><td>the person making a <code>dichiarazione</code></td><td>builds the &quot;attributed statements&quot; section of their page</td></tr>
+<tr><td><code>timeline</code>, <code>title</code></td><td>whether this is a major event, and its header</td><td>the only way an entry reaches the master timeline</td></tr>
+</tbody>
+</table></div>
+<p><span class="sent">The <code>type</code> field deserves a word, because it is the direct heir of the labels <code>[FATTO]</code>, <code>[DICHIARAZIONE]</code> and the others, the convention I described in Part 1 as the most useful one in the whole project, and of the <code>[CONTESTATO]</code> label that the model had made up on the very first ingest.</span><span class="sent"> In the first design those labels were a request, while now they are a closed list that a script checks, and a claim with any other type is simply rejected.</span><span class="sent"> A fifth value, <code>contesto</code>, was added for background, since newspaper articles about a case that has been going on for nineteen years spend a good part of their length recapping what happened in 2007, and those recaps, if rendered on every person page, would bury the new information under hundreds of copies of the same old facts.</span><span class="sent"> <code>contesto</code> claims stay in the ledger and on the source page, but they do not reach the chronologies.</span></p>
+<p><span class="sent">The <code>date</code> is always the date of the event.</span><span class="sent"> A 2025 article explaining that the palm print was catalogued by the RIS in 2007 produces a claim dated 2007, as <code>c02</code> shows, and that one decision is what lets a script build a chronology out of hundreds of articles written in a completely different order.</span></p>
+<p><span class="sent">And then there is the <code>quote</code>, which is the heart of the whole rework.</span><span class="sent"> Every <code>fatto</code> and <code>dichiarazione</code> must carry an excerpt copied word for word from the raw file, and if no quote can be found (because the information comes from a table, say, or from a caption) the claim has to say so explicitly in a <code>no_quote_reason</code> field.</span><span class="sent"> Out of almost twenty-seven thousand claims in the vault today, thirty-one use that escape hatch.</span></p>
+<h2>4. The verifier</h2>
+<p><span class="sent">The reason the quote matters is that it can be checked by something other than the model.</span><span class="sent"> <code>verify-ingest.py</code>, the script born as a replacement for the self-review checklist, grew into the gatekeeper of v2, and its central check is very simple: take the quote, take the raw file, normalize both, and see whether one contains the other.</span><span class="sent"> The normalization is the only clever part, and it is small enough to show in full:</span></p>
+<figure class="ide" data-lang="python">
+<div class="ide-head"><span class="dot"></span><span class="file">scripts/verify-ingest.py</span><span class="lang">python</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">def normalize_for_quote(s):</span></div>
+<div class="ln"><span class="num">2</span><span class="src">    s = unicodedata.normalize(<span class="t-s">"NFKD"</span>, s)</span></div>
+<div class="ln"><span class="num">3</span><span class="src">    s = <span class="t-s">""</span>.join(c for c in s if not unicodedata.combining(c))</span></div>
+<div class="ln"><span class="num">4</span><span class="src">    s = s.lower()</span></div>
+<div class="ln"><span class="num">5</span><span class="src">    for a, b in ((<span class="t-s">"’"</span>, <span class="t-s">"'"</span>), (<span class="t-s">"‘"</span>, <span class="t-s">"'"</span>), (<span class="t-s">"“"</span>, <span class="t-s">'"'</span>), (<span class="t-s">"”"</span>, <span class="t-s">'"'</span>), (<span class="t-s">"«"</span>, <span class="t-s">'"'</span>), (<span class="t-s">"»"</span>, <span class="t-s">'"'</span>),</span></div>
+<div class="ln"><span class="num">6</span><span class="src">                 (<span class="t-s">"–"</span>, <span class="t-s">"-"</span>), (<span class="t-s">"—"</span>, <span class="t-s">"-"</span>), (<span class="t-s">"…"</span>, <span class="t-s">"..."</span>)):</span></div>
+<div class="ln"><span class="num">7</span><span class="src">        s = s.replace(a, b)</span></div>
+<div class="ln"><span class="num">8</span><span class="src">    s = re.sub(r<span class="t-s">"[*_`&gt;#\[\]]"</span>, <span class="t-s">""</span>, s)</span></div>
+<div class="ln"><span class="num">9</span><span class="src">    s = re.sub(r<span class="t-s">"\s+"</span>, <span class="t-s">" "</span>, s)</span></div>
+<div class="ln"><span class="num">10</span><span class="src">    return s.strip()</span></div>
+</div>
+</figure>
+<p><span class="sent">Accents, case, typographic quotes, dashes, markdown emphasis and whitespace are all flattened, because Italian newspapers are inconsistent about all of them and a model copying a passage will sometimes &quot;fix&quot; a curly apostrophe without meaning to.</span><span class="sent"> Everything else must match exactly, which is why <code>c02</code> above can quote <code>“ **numero 33**”</code> with the bold markers of the converted article and still pass, while a quote that rewords a single word does not.</span><span class="sent"> The check that uses it, inside the loop over a file&#39;s claims, is just as short:</span></p>
+<figure class="ide" data-lang="python">
+<div class="ide-head"><span class="dot"></span><span class="file">scripts/verify-ingest.py</span><span class="lang">python</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">quote = str(claim.get(<span class="t-s">"quote"</span>, <span class="t-s">""</span>) or <span class="t-s">""</span>)</span></div>
+<div class="ln"><span class="num">2</span><span class="src">no_quote_reason = str(claim.get(<span class="t-s">"no_quote_reason"</span>, <span class="t-s">""</span>) or <span class="t-s">""</span>)</span></div>
+<div class="ln"><span class="num">3</span><span class="src">if ctype in (<span class="t-s">"fatto"</span>, <span class="t-s">"dichiarazione"</span>) and raw and not quote and not no_quote_reason:</span></div>
+<div class="ln"><span class="num">4</span><span class="src">    fail(f<span class="t-s">"{where}: {ctype} requires a verbatim quote from the raw file (or an explicit no_quote_reason)"</span>)</span></div>
+<div class="ln"><span class="num">5</span><span class="src">if quote and raw_norm is not <span class="t-k">None</span>:</span></div>
+<div class="ln"><span class="num">6</span><span class="src">    if normalize_for_quote(quote) not in raw_norm:</span></div>
+<div class="ln"><span class="num">7</span><span class="src">        fail(f<span class="t-s">"{where}: quote not found in {raw} (normalized match) — quotes must be VERBATIM from the raw source"</span>)</span></div>
+</div>
+</figure>
+<p><span class="sent">Here <code>raw_norm</code> is the whole raw file passed through the same normalization, once per claims file, so the test is a plain substring search, with no fuzzy matching, no similarity threshold and no model involved.</span><span class="sent"> A model can still make up a fact, of course, but it can no longer make up a quote, and a fact without a quote does not get into the wiki.</span></p>
+<p><span class="sent">The quote is only one of the checks.</span><span class="sent"> The full list for a claims file looks like this:</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>The commit is rejected when…</th><th>Why it matters</th></tr></thead>
+<tbody>
+<tr><td>a <code>fatto</code> or <code>dichiarazione</code> has no quote and no <code>no_quote_reason</code></td><td>every fact must be anchored</td></tr>
+<tr><td>a quote is not found in the raw file after normalization</td><td>paraphrase is not a quote</td></tr>
+<tr><td><code>type</code> or <code>confidence</code> is outside its list</td><td>no more invented labels, no more scales swapped for each other</td></tr>
+<tr><td>a <code>subject</code> or <code>speaker</code> has no page</td><td>links cannot break, entities cannot be misspelled into existence silently</td></tr>
+<tr><td>a <code>speaker</code> is set on something other than a statement</td><td>only statements have speakers</td></tr>
+<tr><td><code>timeline: true</code> has no title or no date</td><td>every timeline entry must be complete</td></tr>
+<tr><td>a date does not follow <code>[~]YYYY[-MM[-DD]]</code>, optionally as a range</td><td>chronologies must be sortable</td></tr>
+<tr><td>the claims file has no source page, or the other way round</td><td>the two halves of an ingest travel together</td></tr>
+<tr><td>any generated file is stale or edited by hand</td><td>the build output must always match its inputs</td></tr>
+</tbody>
+</table></div>
+<p><span class="sent">Bear in mind that the confidence and reliability mix-up I mentioned at the end of Part 1, the one that went unnoticed for seven weeks, would now fail the third row on the very first commit.</span><span class="sent"> When something does fail, the commit stops and the model gets a message precise enough to fix the problem without guessing, for example:</span></p>
+<figure class="ide" data-lang="text">
+<div class="ide-head"><span class="dot"></span><span class="file">text</span><span class="lang">text</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">verify-ingest v2 — tiers: LINT, CLAIMS, INGEST</span></div>
+<div class="ln"><span class="num">2</span><span class="src">​</span></div>
+<div class="ln"><span class="num">3</span><span class="src"><span class="t-n">1</span> FAILURE(S) — commit blocked:</span></div>
+<div class="ln"><span class="num">4</span><span class="src">  FAIL  claims/<span class="t-n">2025</span>-<span class="t-n">05</span>-<span class="t-n">20</span>--delitto-garlasco-la-perizia-….yaml<span class="t-c">#c03: quote not found in raw/articles/panorama/2025/….md (normalized match) — quotes must be VERBATIM from the raw source</span></span></div>
+</div>
+</figure>
+<p><span class="sent">The hook runs on every commit, and since a hook is installed locally and could in theory be skipped, the same script runs again on the server, over the whole corpus, every time the vault is pushed.</span><span class="sent"> Only after that does the public site get rebuilt.</span></p>
+<figure class="diagram"><pre class="mermaid">flowchart TD
+    W["ingest or distill session&lt;br/&gt;writes pages and claims"] --&gt; B["build.py&lt;br/&gt;regenerates every view"]
+    B --&gt; C["git commit"]
+    C --&gt; H{"pre-commit hook&lt;br/&gt;verify-ingest.py"}
+    H -- fail --&gt; F["read the message,&lt;br/&gt;fix, stage again"]
+    F --&gt; C
+    H -- pass --&gt; P["git push"]
+    P --&gt; CI{"CI&lt;br/&gt;verify-ingest.py --all"}
+    CI -- pass --&gt; S["public site rebuilt"]</pre></figure>
+<p><span class="sent">The point of all this, and I think it is worth stating plainly, is that the judge is no longer the model that did the work.</span><span class="sent"> The model can be careless, tired (in the sense that its context is full), or simply wrong, and the commit will still be rejected, without anyone having to read the diff.</span></p>
+<h2>5. The generator</h2>
+<p><span class="sent">With the facts in a structured ledger, <code>build.py</code> can produce everything that used to be written by hand.</span><span class="sent"> It is a pure generator, meaning that it reads the claims and the page frontmatter and writes its output, without ever deciding anything, and it owns the following:</span></p>
+<ul>
+<li>the master timeline, as one file per event year plus a hub, built from the claims marked <code>timeline: true</code>;</li>
+<li>the category indexes in <code>categories/</code>, one line per page, using a short description stored in each page&#39;s frontmatter;</li>
+<li>two marked regions on every entity page: the chronology (every claim about that person, place or piece of evidence, in date order) and, for people, their attributed statements;</li>
+<li>the <code>sources:</code> and <code>related_*</code> arrays in the frontmatter, which the first design asked the model to keep up to date and which were often empty or incomplete;</li>
+<li><code>entities.json</code>, a registry of every entity with its aliases, which the ingest uses to recognize that &quot;il fidanzato di Chiara&quot; and &quot;Stasi&quot; are the same person;</li>
+<li>a report of candidate conflicts, that is, groups of claims on the same subject and date coming from different sources, which a later session examines by hand.</li>
+</ul>
+<p><span class="sent">A single claim, then, ends up in several places at once, without anyone having to remember to put it there.</span><span class="sent"> This is what happens to <code>c01</code> of the Panorama article above:</span></p>
+<figure class="diagram"><pre class="mermaid">flowchart LR
+    C["claim c01&lt;br/&gt;impronta 33, May 2025"]
+    C --&gt; T["timeline 2025&lt;br/&gt;entry with title"]
+    C --&gt; P1["Andrea Sempio&lt;br/&gt;chronology"]
+    C --&gt; E1["evidence: palm print&lt;br/&gt;chronology"]
+    C --&gt; A["frontmatter arrays&lt;br/&gt;sources, related_people"]
+    C --&gt; X["category index&lt;br/&gt;source listed"]
+    C --&gt; R["conflict candidates&lt;br/&gt;if sources disagree"]</pre></figure>
+<p><span class="sent">It is the same fan-out as the &quot;one source, thirty-three pages&quot; diagram of Part 1, with the difference that now a script draws it.</span><span class="sent"> The timeline entry it produces has exactly the format the first design had invented, so the published pages did not change their appearance, only their origin:</span></p>
+<figure class="ide" data-lang="markdown">
+<div class="ide-head"><span class="dot"></span><span class="file">wiki/timeline/master-timeline-2025.md</span><span class="lang">Markdown</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src"><span class="t-k">### ~2025-05-20 — Perizia della Procura attribuisce ad Andrea Sempio l'impronta accanto al corpo</span></span></div>
+<div class="ln"><span class="num">2</span><span class="src"><span class="t-k">-</span> <span class="t-k">**Partecipanti**</span>: [[wiki/people/andrea-sempio]]</span></div>
+<div class="ln"><span class="num">3</span><span class="src"><span class="t-k">-</span> <span class="t-k">**Fonti**</span>: [[wiki/sources/2025-05-20--delitto-garlasco-la-perizia-dei-pm-c-era-un-impronta-di-andrea-sempio-vicino-al-cadavere-di-chiara]]</span></div>
+<div class="ln"><span class="num">4</span><span class="src"><span class="t-k">-</span> <span class="t-k">**Confidenza**</span>: claimed</span></div>
+<div class="ln"><span class="num">5</span><span class="src"><span class="t-k">-</span> <span class="t-k">**Note**</span>: Procura di Pavia, notizia rilanciata dai social del Tg1</span></div>
+<div class="ln"><span class="num">6</span><span class="src">​</span></div>
+<div class="ln"><span class="num">7</span><span class="src">[FATTO] Una nuova perizia disposta dalla Procura di Pavia attribuisce ad Andrea Sempio l'impronta della mano rinvenuta accanto al corpo di Chiara Poggi, dettaglio finora inedito a quasi 18 anni dall'omicidio.</span></div>
+</div>
+</figure>
+<p><span class="sent">On entity pages the line between written and generated is drawn with two HTML comments.</span><span class="sent"> Everything above the marker is curated prose and belongs to the distill sessions, and everything between the markers belongs to the build, which rewrites it from scratch every time it runs.</span><span class="sent"> Here is the point where the two meet on Andrea Sempio&#39;s page:</span></p>
+<figure class="ide" data-lang="markdown">
+<div class="ide-head"><span class="dot"></span><span class="file">wiki/people/andrea-sempio.md</span><span class="lang">Markdown</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src"><span class="t-k">-</span> <span class="t-k">**2010 — memoria difensiva Stasi**</span>: [FATTO — LPP 10/5/2026] Il suo nome compariva già nel 2010 tra le possibili persone presenti in via Pascoli in una memoria della difesa Stasi (Colli, Giarda, Avato), senza indicazione di colpevolezza. → [[wiki/people/giuseppe-colli]]</span></div>
+<div class="ln"><span class="num">2</span><span class="src">​</span></div>
+<div class="ln"><span class="num">3</span><span class="src"><span class="t-k">## Azioni e presenze nella timeline</span></span></div>
+<div class="ln"><span class="num">4</span><span class="src">​</span></div>
+<div class="ln"><span class="num">5</span><span class="src">&lt;!-- BEGIN GENERATED: chronology --&gt;</span></div>
+<div class="ln"><span class="num">6</span><span class="src"><span class="t-k">-</span> <span class="t-k">**~1988**</span>: [FATTO] Andrea Sempio, classe 1988, è amico e coscritto di Marco Poggi, fratello di Chiara; erano amici d'infanzia e compagni di scuola fino alla fine degli studi a Vigevano. Fonte: [[wiki/sources/2025-03-13--il-silenzio-di-andrea-sempio-mercoledi-il-compleanno-al-riparo-dallass]]</span></div>
+<div class="ln"><span class="num">7</span><span class="src">​</span></div>
+<div class="ln"><span class="num">8</span><span class="src"><span class="t-k">-</span> <span class="t-k">**2003**</span>: [FATTO] Il rapporto tra Mirko Crepaldi e Andrea Sempio risale all'inizio delle scuole superiori, nel 2003. Fonte: [[wiki/sources/2026-01-31--garlasco-parla-l-amico-di-andrea-sempio-in-vent-anni-non-e-mai-cambiato-credo-nella-sua-innocenza]]</span></div>
+<div class="ln"><span class="num">9</span><span class="src">…</span></div>
+<div class="ln"><span class="num">10</span><span class="src">&lt;!-- END GENERATED: chronology --&gt;</span></div>
+</div>
+</figure>
+<p><span class="sent">The function that writes those regions does little more than find the two markers and replace whatever sits between them, and when a page has no markers yet it appends the section at the end, so the hand-written part above is never touched:</span></p>
+<figure class="ide" data-lang="python">
+<div class="ide-head"><span class="dot"></span><span class="file">scripts/build.py</span><span class="lang">python</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">def splice_region(text, region, content, append_header=<span class="t-k">None</span>):</span></div>
+<div class="ln"><span class="num">2</span><span class="src">    <span class="t-s">""</span><span class="t-s">"Replace the marker-delimited region in text; append section when absent."</span><span class="t-s">""</span></span></div>
+<div class="ln"><span class="num">3</span><span class="src">    begin = f<span class="t-s">"&lt;!-- BEGIN GENERATED: {region} --&gt;"</span></span></div>
+<div class="ln"><span class="num">4</span><span class="src">    end = f<span class="t-s">"&lt;!-- END GENERATED: {region} --&gt;"</span></span></div>
+<div class="ln"><span class="num">5</span><span class="src">    block = f<span class="t-s">"{begin}\n{content.rstrip()}\n{end}"</span> if content.strip() else f<span class="t-s">"{begin}\n{end}"</span></span></div>
+<div class="ln"><span class="num">6</span><span class="src">    pattern = re.compile(re.escape(begin) + r<span class="t-s">".*?"</span> + re.escape(end), re.DOTALL)</span></div>
+<div class="ln"><span class="num">7</span><span class="src">    if pattern.search(text):</span></div>
+<div class="ln"><span class="num">8</span><span class="src">        return pattern.sub(lambda _: block, text, count=<span class="t-n">1</span>)</span></div>
+<div class="ln"><span class="num">9</span><span class="src">    …</span></div>
+<div class="ln"><span class="num">10</span><span class="src">    return text.rstrip() + f<span class="t-s">"\n\n{append_header}\n\n{block}\n"</span></span></div>
+</div>
+</figure>
+<p><span class="sent">The build also has a <code>--check</code> mode, and it is the reason the whole arrangement holds.</span><span class="sent"> The entry point computes every output in memory first, then compares each one with the file on disk, and either writes the files that differ or, with <code>--check</code>, lists them and exits with an error:</span></p>
+<figure class="ide" data-lang="python">
+<div class="ide-head"><span class="dot"></span><span class="file">scripts/build.py</span><span class="lang">python</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">def main():</span></div>
+<div class="ln"><span class="num">2</span><span class="src">    check = <span class="t-s">"--check"</span> in sys.argv</span></div>
+<div class="ln"><span class="num">3</span><span class="src">    outputs = compute_outputs()</span></div>
+<div class="ln"><span class="num">4</span><span class="src">    stale = []</span></div>
+<div class="ln"><span class="num">5</span><span class="src">    for path, content in sorted(outputs.items()):</span></div>
+<div class="ln"><span class="num">6</span><span class="src">        current = path.read_text(encoding=<span class="t-s">"utf-8"</span>) if path.is_file() else <span class="t-k">None</span></span></div>
+<div class="ln"><span class="num">7</span><span class="src">        if current == content:</span></div>
+<div class="ln"><span class="num">8</span><span class="src">            continue</span></div>
+<div class="ln"><span class="num">9</span><span class="src">        stale.append(path)</span></div>
+<div class="ln"><span class="num">10</span><span class="src">        if not check:</span></div>
+<div class="ln"><span class="num">11</span><span class="src">            path.parent.mkdir(parents=<span class="t-k">True</span>, exist_ok=<span class="t-k">True</span>)</span></div>
+<div class="ln"><span class="num">12</span><span class="src">            path.write_text(content, encoding=<span class="t-s">"utf-8"</span>)</span></div>
+<div class="ln"><span class="num">13</span><span class="src">    rel = [str(p.relative_to(ROOT)) for p in stale]</span></div>
+<div class="ln"><span class="num">14</span><span class="src">    if check:</span></div>
+<div class="ln"><span class="num">15</span><span class="src">        if stale:</span></div>
+<div class="ln"><span class="num">16</span><span class="src">            print(<span class="t-s">"STALE (run: python3 scripts/build.py):"</span>)</span></div>
+<div class="ln"><span class="num">17</span><span class="src">            print(<span class="t-s">"\n"</span>.join(f<span class="t-s">"  {r}"</span> for r in rel))</span></div>
+<div class="ln"><span class="num">18</span><span class="src">            return <span class="t-n">1</span></span></div>
+<div class="ln"><span class="num">19</span><span class="src">        print(<span class="t-s">"build --check: tutto aggiornato"</span>)</span></div>
+<div class="ln"><span class="num">20</span><span class="src">        return <span class="t-n">0</span></span></div>
+<div class="ln"><span class="num">21</span><span class="src">    …</span></div>
+</div>
+</figure>
+<p><span class="sent">Since the output depends only on the claims and the frontmatter, running the build twice gives the same files, and any difference between what the build would write and what is on disk means one of two things: someone (human or model) edited a generated region by hand, or someone changed a claim and forgot to run the build.</span><span class="sent"> Either way, that is the last row of the verifier&#39;s table, and the commit fails.</span></p>
+<p><span class="sent">The effect on the files that held the shared state was immediate.</span><span class="sent"> When the category indexes became generated, the index of sources went from about 312 KB to 83 KB and the index of people from 49 KB to 10.5 KB, simply because a generated line says what it needs to say and nothing else, while the hand-written ones had accumulated summaries, notes and second thoughts.</span><span class="sent"> More importantly, the files that every ingest used to read and rewrite (the indexes, the timeline, the chronologies) are no longer touched by the ingest at all, so two ingests can no longer conflict over them, and the model no longer has to load them into its context.</span></p>
+<p><span class="sent">Queries changed too, although less visibly.</span><span class="sent"> Instead of opening pages and following links, a query session now starts from a small command-line tool, <code>query.py</code>, which loads the claims into a local SQLite database and can answer questions such as &quot;every statement by this person&quot;, &quot;every claim about this piece of evidence after this date&quot; or &quot;every claim with this word in its quote&quot;, each with its citation, before the model opens a single page.</span></p>
+<h2>6. Cutover: freezing the past</h2>
+<p><span class="sent">The difficult part of a rework like this is not the new design but the old content.</span><span class="sent"> At the moment of the switch the wiki held 448 source pages, written over a few months, and not a single machine-readable claim: every fact lived inside a paragraph, readable by a person and opaque to a script.</span><span class="sent"> Rewriting all of it before switching would have meant stopping the wiki for weeks, while switching without it would have meant publishing a timeline with a hole the size of the whole first design.</span></p>
+<p><span class="sent">The solution was a forward-only migration, which is a common pattern for databases and works just as well here.</span><span class="sent"> A migration script extracted the old content that the generator was about to take over (the 354 entries of the master timeline and 857 dated bullets from the chronologies on people pages) and froze it, word for word, in a <code>legacy/</code> directory.</span><span class="sent"> From that moment <code>build.py</code> merged two inputs, the frozen legacy entries and the new claims, and sorted them together, so that the published timeline and chronologies looked exactly as before while their source of truth had changed underneath.</span><span class="sent"> The rules for <code>legacy/</code> were strict: it could be read, it could shrink, but it could never grow, and nobody, model included, could edit it by hand.</span></p>
+<p><span class="sent">After the cutover, every new source went through the new ingest and produced claims, while the old ones waited for what the plan called the backfill.</span></p>
+<h2>7. The backfill</h2>
+<p><span class="sent">Backfilling meant going back to each of the 448 pre-v2 sources, reading its raw file again, and writing the claims file that it would have had if it had been ingested under v2.</span><span class="sent"> It is a long and repetitive job, exactly the kind that a model is well suited for, provided that something checks its output, and in this case the verifier did.</span><span class="sent"> The sources were processed in batches of five to eight, oldest first, one subagent per source, and each batch ended with a script, <code>legacy-retire.py</code>, deciding which frozen legacy entries could now be deleted because their content was covered by the new claims.</span></p>
+<p><span class="sent">The retirement rule is deliberately conservative.</span><span class="sent"> A legacy entry usually cites one or more sources through their links, and it is retired only when every source it cites has been backfilled, so that an entry built on two articles waits until both of them have claims.</span><span class="sent"> In code, the whole rule is a subset test between the sources an entry cites and the sources that have a claims file:</span></p>
+<figure class="ide" data-lang="python">
+<div class="ide-head"><span class="dot"></span><span class="file">scripts/legacy-retire.py</span><span class="lang">python</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">def backfilled_slugs():</span></div>
+<div class="ln"><span class="num">2</span><span class="src">    return {p.stem for p in CLAIMS_DIR.glob(<span class="t-s">"*.yaml"</span>)}</span></div>
+<div class="ln"><span class="num">3</span><span class="src">​</span></div>
+<div class="ln"><span class="num">4</span><span class="src">def apply(slugs):</span></div>
+<div class="ln"><span class="num">5</span><span class="src">    effective = set(slugs) | backfilled_slugs()</span></div>
+<div class="ln"><span class="num">6</span><span class="src">    …</span></div>
+<div class="ln"><span class="num">7</span><span class="src">    for path, data, i, entry, cited in iter_entries():</span></div>
+<div class="ln"><span class="num">8</span><span class="src">        if cited and cited &lt;= effective and not entry.get(<span class="t-s">"hold"</span>):</span></div>
+<div class="ln"><span class="num">9</span><span class="src">            by_file.setdefault(path, (data, []))[<span class="t-n">1</span>].append(i)</span></div>
+</div>
+</figure>
+<p><span class="sent"><code>cited</code> is the set of sources linked from the entry&#39;s text, and <code>cited &lt;= effective</code> is Python&#39;s way of asking whether it is a subset.</span><span class="sent"> An entry with no links at all is never retired automatically, and neither is one placed on hold by hand.</span><span class="sent"> This is why the curve below flattens towards the end: the entries retired first were the simple ones, while those citing several sources kept waiting for their last one.</span></p>
+<figure class="diagram"><pre class="mermaid">xychart-beta
+    title "Backfill: legacy entries left (bars) and backfilled claims (line)"
+    x-axis ["start", "6", "12", "18", "24", "30", "36", "42", "48", "54", "60", "66", "67", "end"]
+    y-axis "count" 0 --&gt; 5000
+    bar [1211, 939, 796, 656, 549, 463, 389, 316, 264, 226, 185, 153, 152, 0]
+    line [0, 494, 889, 1290, 1637, 1965, 2337, 2729, 3202, 3798, 4282, 4764, 4790, 4790]</pre></figure>
+<p><span class="sent">It took sixty-seven batches, spread over the summer and autumn whenever I had time and usage left on my subscriptions, and it produced 4,790 claims from the old sources.</span><span class="sent"> At the end, 152 legacy entries were still there, the ones that no backfilled claim covered, and those needed a different kind of work, because a script could not decide what to do with them.</span><span class="sent"> For each of them a session followed a fixed order: if the same fact was already in a claim, the entry was retired with a reference to that claim; if a distinctive phrase could be found in a raw file, a claim with a verbatim quote was added to that source&#39;s claims file and the entry was retired; if nothing supported it, it was retired as unsupported; and if it was a plausible historical fact whose source simply could not be found, it could be kept, explicitly marked as unattributed.</span><span class="sent"> Every one of these decisions was written to a log with its reason.</span><span class="sent"> In the end all 152 were retired, twelve of them after a new claim had been written from a raw file that the original ingest had not fully exploited, and <code>legacy/</code> is now empty.</span></p>
+<p><span class="sent">I would argue that this is the part of the project where the deterministic approach paid off the most, even though it is the least visible.</span><span class="sent"> A model asked to &quot;migrate the old content to the new format&quot; would have produced something plausible and impossible to check, while a script that deletes a legacy entry only when every source it cites has quote-anchored claims, and a log that records why each of the remaining ones was retired, turn the migration into something you can actually audit.</span></p>
+<h2>8. Bookkeeping and judgment</h2>
+<p><span class="sent">Once the generated views were taken away from it, the ingest became much smaller.</span><span class="sent"> In the first design a single ingest had to read the source, write its page, update the overview, update every person, place, piece of evidence and hypothesis it touched, insert entries in the timeline, flag contradictions, update the indexes and write the log, which is why the median article touched seven files and a single context had to hold most of the wiki.</span><span class="sent"> The new ingest is proportional to the source and nothing else:</span></p>
+<figure class="diagram"><pre class="mermaid">flowchart TD
+    A["ingest request"] --&gt; B{"does wiki/sources/slug.md&lt;br/&gt;already exist?"}
+    B -- yes --&gt; STOP["stop: already ingested"]
+    B -- no --&gt; C["read the raw file in full"]
+    C --&gt; D["write the source page"]
+    C --&gt; E["write claims/slug.yaml&lt;br/&gt;quotes, subjects, stubs"]
+    D --&gt; F["build.py"]
+    E --&gt; F
+    F --&gt; G["flag contradictions, leads&lt;br/&gt;only if warranted"]
+    G --&gt; H["terse log entry"]
+    H --&gt; I["commit through the hook"]</pre></figure>
+<p><span class="sent">The source page, the claims file, a stub page for any entity that does not exist yet, a line in the log, and very little else.</span><span class="sent"> Rewriting the curated prose (a person&#39;s profile, the reasoning on a piece of evidence, the arguments for and against a hypothesis, the overview) moved out of the ingest into a separate operation called distill, which runs every few dozen ingests and takes as its input the claims added since the previous one.</span><span class="sent"> Its first rule is to rewrite rather than append, because a curated section should state what is known now, while the history of how we got there already lives, generated, in the chronology below it.</span></p>
+<p><span class="sent">The split matters because the two kinds of work are very different.</span><span class="sent"> Extracting claims from a source is narrow and checkable, and it can be given to a smaller, cheaper model, while deciding what a new set of claims means for a hypothesis needs the whole picture and the best model available, and it cannot be checked by a script at all.</span><span class="sent"> Keeping them in the same session meant paying the expensive kind of attention for the cheap kind of work, and filling the context with pages that had nothing to do with the source being read.</span></p>
+<p><span class="sent">That said, the extraction did not come out right at the first attempt, and a few lessons were learned along the way, each of which became a rule in the ingest workflow.</span><span class="sent"> Recap passages, as I mentioned, were flooding the chronologies until <code>contesto</code> was separated from the other types, and an audit had to go back and retype a hundred and forty claims.</span><span class="sent"> Subagents on smaller models turned out to extract investigative articles thoroughly but to treat profile articles (the kind of piece that tells you a person&#39;s age, job, family, and how long they have known the other people in the case) as colour to skip, so that a long profile of a consultant produced a single claim, until the workflow said explicitly that for people who are, or should be, entities in the wiki, those details are claims.</span><span class="sent"> And distill sessions, even with the rewrite rule, kept making the curated pages longer, so the verifier gained a size check on the hand-written part of each page, which for now only warns, and which will block a commit that makes an already oversized page grow once the largest pages have been brought back within their limits.</span></p>
+<h2>9. What code cannot check</h2>
+<p><span class="sent">It would be dishonest to present the verifier as a guarantee of truth, because it guarantees something narrower, and it is worth being precise about what.</span></p>
+<p><span class="sent">A quote can be verbatim and still not support the claim.</span><span class="sent"> Look again at <code>c01</code> above: the quote says that the new expert report &quot;accende i riflettori su un dettaglio finora inedito&quot;, which is true and does appear in the article, but the claim&#39;s text says that the report attributes the palm print to Andrea Sempio, and that part is supported by other sentences of the article, not by the one chosen as the anchor.</span><span class="sent"> The verifier checks that the words exist, not that they mean what the claim says, and that is why audits still spot-check a sample of claims against the context of their raw file, by reading them.</span></p>
+<p><span class="sent">Entities can still be duplicated.</span><span class="sent"> The verifier checks that a subject has a page, but when an ingest decides that a person is new it creates that page itself, and a name misspelled by a newspaper (the vault had, at one point, a Marchigiani, a Marchegiani and a Machegiani, all the same person) produces three perfectly valid pages.</span><span class="sent"> A guard against near-identical names now rejects most of these cases, but it cannot tell a typo from two people whose names really are almost the same.</span></p>
+<p><span class="sent">Conflicts are found, but not understood.</span><span class="sent"> The report of candidate conflicts groups claims on the same subject and date from different sources, which is useful in a small corpus and overwhelming in a large one, since twenty articles on the same day of a hearing produce many groups that are not conflicts at all.</span><span class="sent"> The report has grown to several megabytes, and the rule today is that no session ever opens it whole.</span><span class="sent"> A lexical filter for duplicate timeline entries was also tried and abandoned, because on a sample most of what it would have removed were different events that happened to share a date, a subject and some vocabulary (an exhumation and a funeral, a summons and a refusal to answer).</span></p>
+<p><span class="sent">And the deeper question of whether different sources are repeating the same fact was measured before anything was built: on a month of claims, the share that was truly redundant with a claim from another source came out below three percent, while many more refined each other, each article repeating a known theme with one more detail.</span><span class="sent"> Merging them would have lost that detail, so the wiki keeps every source&#39;s claims separate and leaves the reconciliation to distill.</span></p>
+<p><span class="sent">None of this undermines the approach, as far as I can tell.</span><span class="sent"> The deterministic layer does not replace judgment, it moves judgment to where it is needed, and takes it away from places where a machine can do better, such as checking that a string appears in a file, or that a date can be sorted.</span></p>
+<h2>10. Where it stands</h2>
+<p><span class="sent" data-fns="2">This is the wiki at the three points that matter for this story<sup class="fn-ref"><a href="#fn-2" data-fn="2">2</a></sup>:</span></p>
+<aside class="sidenote" id="fn-2" data-fn="2"><span class="num">2</span>&quot;End of the first design&quot; is the state just before the cutover; &quot;end of the backfill&quot; is the commit of the last backfill batch. Page counts exclude placeholder files. Timeline entries for today count the entries in the generated shards; the legacy entries still rendered at the end of the backfill are not included in the middle column. Case facts are stated only at the level established by the judgments and by public reporting, as in Part 1.</aside>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th style="text-align:right">End of the first design</th><th style="text-align:right">End of the backfill</th><th style="text-align:right">Today</th></tr></thead>
+<tbody>
+<tr><td>Source pages</td><td style="text-align:right">448</td><td style="text-align:right">777</td><td style="text-align:right">1,729</td></tr>
+<tr><td>Claims</td><td style="text-align:right">0</td><td style="text-align:right">9,326</td><td style="text-align:right">26,912</td></tr>
+<tr><td>Timeline entries</td><td style="text-align:right">354</td><td style="text-align:right">607 from claims, plus legacy</td><td style="text-align:right">1,123</td></tr>
+<tr><td>People pages</td><td style="text-align:right">143</td><td style="text-align:right">251</td><td style="text-align:right">417</td></tr>
+<tr><td>Evidence pages</td><td style="text-align:right">33</td><td style="text-align:right">46</td><td style="text-align:right">71</td></tr>
+<tr><td>Contradiction pages</td><td style="text-align:right">13</td><td style="text-align:right">30</td><td style="text-align:right">58</td></tr>
+<tr><td>Legacy entries</td><td style="text-align:right">n/a</td><td style="text-align:right">152</td><td style="text-align:right">0</td></tr>
+</tbody>
+</table></div>
+<p><span class="sent">The claims, by type, are distributed as you would expect from a corpus made mostly of newspaper articles about an ongoing investigation, with statements outnumbering facts:</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Type</th><th style="text-align:right">Claims</th></tr></thead>
+<tbody>
+<tr><td><code>dichiarazione</code> (statement)</td><td style="text-align:right">12,772</td></tr>
+<tr><td><code>fatto</code> (fact, according to the source)</td><td style="text-align:right">8,249</td></tr>
+<tr><td><code>contesto</code> (background)</td><td style="text-align:right">3,269</td></tr>
+<tr><td><code>ipotesi</code> (hypothesis)</td><td style="text-align:right">1,365</td></tr>
+<tr><td><code>inferenza</code> (inference)</td><td style="text-align:right">1,257</td></tr>
+</tbody>
+</table></div>
+<p><span class="sent">Looking at these numbers, though, I cannot help noticing that the hardest problem of Part 1 has been solved and replaced by a different one.</span><span class="sent"> Keeping the wiki consistent is now mechanical, and a source can be ingested without the model having to hold the rest of the wiki in its head, but the sources still had to be found, converted to markdown and filed by hand, and every ingest session still began with a model reading the operating manual, the workflow, the schema and the entity registry before even looking at the article, a fixed cost paid again by every subagent.</span><span class="sent"> When the backlog of articles waiting on disk passed five hundred, it became clear that the expensive part was no longer maintenance, but everything around it: finding the sources, and the agent loop itself.</span></p>
+<p><span class="sent">That is where the third part begins, with a crawler that looks for new sources on its own, a single-call extraction that replaced the subagents for articles, and a loop that runs ingest, distill and audit unattended, along with what all of that cost, measured.</span></p>
+      </article>
+      <nav class="pager" id="pager"><span class="prev empty"></span><a class="next" href="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/"><span class="label">Older →</span><span>The Garlasco Case and the Building of an LLM Investigation Wiki</span></a></nav>
+    </div>
+  </section>
+
+  <!-- ====================== RIGHT ====================== -->
+  <aside class="pane right">
+    <canvas class="backdrop rain" aria-hidden="true"></canvas>
+    <div class="top">
+      <a href="/" class="mark" data-mark aria-label="vuotogeometrico"></a>
+      <div class="who">
+        <div class="name">vuotogeometrico</div>
+        <div class="role"><span class="role-word" data-tag="photography">photography</span>, <span class="role-word on" data-tag="software-engineering">software engineering</span>, <span class="role-word" data-tag="random">thoughts</span></div>
+      </div>
+    </div>
+
+    <div class="about">
+      <p>Vuoto geometrico è l&#39;incubo ricorrente della mia dormiveglia infantile. È uno spazio senza confini, in cui una linea retta, seguita con gli occhi, accelera e collassa su sé stessa. O un cerchio che si restringe fino a diventare un punto, o si allarga fino a togliere il respiro.</p>
+      <p>In questo angolo del web cerco di mettere insieme temi fotografici, e ogni tanto rigurgito qualche pensiero sul mondo del software o qualsiasi altra cosa mi passi per la testa.</p>
+      <a class="email" href="mailto:msmcntmr@gmail.com">msmcntmr@gmail.com</a>
+    </div>
+
+    <div class="pane-tools">
+      <div class="text-size" data-text-size aria-label="Text size">
+        <button type="button" data-size="16" aria-label="Small">A</button>
+        <button type="button" data-size="18" aria-label="Medium">A</button>
+        <button type="button" data-size="20" aria-label="Large">A</button>
+      </div>
+      <span class="sep" aria-hidden="true"></span>
+      <button type="button" class="panel-swap" data-panel-swap aria-label="Swap panel backgrounds" title="Swap panel backgrounds">
+        <span class="half" aria-hidden="true"></span>
+      </button>
+    </div>
+  </aside>
+
+</div>
+
+<!-- ====================== FULLSCREEN IMAGE MODAL ====================== -->
+<div class="modal" id="modal" hidden>
+  <div class="scrim"></div>
+  <div class="modal-inner">
+    <div class="modal-img" id="modal-img"></div>
+    <div class="modal-meta">
+      <div class="eyebrow">Plate</div>
+      <h2 id="m-title">—</h2>
+      <p class="caption" id="m-caption" hidden></p>
+      <div class="desc" id="m-desc" hidden></div>
+      <dl class="tech" id="m-tech"></dl>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== FIGURE DATA ====================== -->
+<script id="figdata" type="application/json">[]</script>
+<script src="/assets/article.js"></script>
+<script type="module" src="/assets/diagrams.js"></script>
+<script src="/assets/rain.js"></script>
+
+</body>
+</html>

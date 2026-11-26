@@ -4,7 +4,14 @@
   <link href="https://msmcntmr.github.io/" />
   <link href="https://msmcntmr.github.io/feed.xml" rel="self" />
   <id>https://msmcntmr.github.io/</id>
-  <updated>2026-11-24T00:00:00.000Z</updated>
+  <updated>2026-11-26T00:00:00.000Z</updated>
+  <entry>
+    <title>From Prose to Claims: Rebuilding the Garlasco LLM Wiki</title>
+    <link href="https://msmcntmr.github.io/a/from-prose-to-claims-rebuilding-the-garlasco-llm-wiki/" />
+    <id>https://msmcntmr.github.io/a/from-prose-to-claims-rebuilding-the-garlasco-llm-wiki/</id>
+    <updated>2026-11-26T00:00:00.000Z</updated>
+    <summary>Part 2 — Why the wiki was rebuilt around quote-anchored claims, and how deterministic scripts took over the bookkeeping</summary>
+  </entry>
   <entry>
     <title>The Garlasco Case and the Building of an LLM Investigation Wiki</title>
     <link href="https://msmcntmr.github.io/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/" />

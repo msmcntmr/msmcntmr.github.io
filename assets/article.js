@@ -91,7 +91,14 @@
     function placeRail(){
       const body = $body.getBoundingClientRect().right;
       const pane = $body.closest('.pane').getBoundingClientRect().right;
-      seam.style.setProperty('--seam-x', Math.round(Math.min(body + 40, pane - 24)) + 'px');
+      const x = Math.round(Math.min(body + 40, pane - 24));
+      seam.style.setProperty('--seam-x', x + 'px');
+      // room between the text column and the rail for the current title
+      // (labels end 20px left of the rail); too little room and it stays hidden
+      const p = $body.querySelector(':scope > p');
+      const room = Math.floor(x - 20 - 16 - (p ? p.getBoundingClientRect().right : body));
+      seam.style.setProperty('--seam-room', Math.max(0, room) + 'px');
+      seam.classList.toggle('cramped', room < 120);
     }
 
     function placeTicks(){
@@ -114,34 +121,23 @@
       kick();
     }
     // a tick sits where its heading falls on the rail (same mapping as the
-    // window); titles closer than a line apart are pushed down to stay legible
+    // window); titles that would touch (a wrapped title is two lines tall)
+    // are pushed down to stay legible
     function placeTickMarks(){
-      const run = innerHeight - 64, gap = 20, cut = 6;   // cut: half-gap in the rail
-      let prev = -Infinity;
+      const run = innerHeight - 64, cut = 6;            // cut: half-gap in the rail
+      let prevY = -Infinity, prevH = 0;
       const stops = ['#000 0'];
       for (const t of ticks){
         const at = (t.h.getBoundingClientRect().top + scrollY) / docH();
         t.b.style.setProperty('--at', at.toFixed(4));
-        const y = 32 + run * at, shown = Math.max(y, prev + gap);
+        const h = t.b.querySelector('span').offsetHeight;
+        const y = 32 + run * at, shown = Math.max(y, prevY + (prevH + h) / 2 + 2);
         t.b.style.setProperty('--dy', (shown - y).toFixed(1) + 'px');
-        prev = shown;
+        prevY = shown; prevH = h;
         stops.push(`#000 ${(y - cut).toFixed(1)}px`, `transparent ${(y - cut).toFixed(1)}px`,
                    `transparent ${(y + cut).toFixed(1)}px`, `#000 ${(y + cut).toFixed(1)}px`);
       }
       seam.style.setProperty('--gaps', `linear-gradient(to bottom, ${stops.join(', ')})`);
-    }
-
-    // the current chapter's title hides while it would sit over article
-    // content (sidenotes, or text on narrower screens), and returns after
-    function labelCovered(t){
-      const r = t.b.querySelector('span').getBoundingClientRect();
-      const y = r.top + r.height / 2;
-      for (const x of [r.left + 4, r.left + r.width / 2, r.right - 4]){
-        for (const el of document.elementsFromPoint(x, y)){
-          if (el !== $body && $body.contains(el)) return true;
-        }
-      }
-      return false;
     }
 
     // spring state for the two ends of the segment (fractions of the rail)
@@ -177,10 +173,7 @@
         t.b.classList.toggle('passed', passed);
         if (passed) current = i;
       });
-      ticks.forEach((t, i) => {
-        t.b.classList.toggle('current', i === current);
-        t.b.classList.toggle('covered', i === current && labelCovered(t));
-      });
+      ticks.forEach((t, i) => t.b.classList.toggle('current', i === current));
       const busy = Math.abs(ends.a.x - ta) + Math.abs(ends.b.x - tb) > 1e-4
         || Math.abs(ends.a.v) + Math.abs(ends.b.v) > 1e-3;
       if (busy) raf = requestAnimationFrame(frame); else last = 0;

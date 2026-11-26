@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-tag="random">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -61,6 +61,20 @@
     padding-bottom: 88px;
     transition: background-color .5s ease;
   }
+  /* a faint animated backdrop in the top half of the pane, fading out towards
+     the middle: falling code on software-engineering articles
+     (assets/rain.js), a photographic one on photography articles
+     (assets/photo.js) */
+  .right > .backdrop{
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 50%;
+    pointer-events: none; z-index: -1;     /* above the pane colour, under its content */
+    color: var(--ink);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 100%);
+  }
+  .right:has(> .backdrop){ isolation: isolate; }
+  @media (max-width: 1024px){ .right > .backdrop{ display: none; } }
 
   /* ---------- reading rail: progress line in the article's right margin ----
      A barely-there hairline, fixed to the viewport, sits past the sidenotes;
@@ -954,6 +968,7 @@ Avevo altri esempi in mente nel tempo, ma ovviamente il mio cervello se li è gi
 
   <!-- ====================== RIGHT ====================== -->
   <aside class="pane right">
+
     <div class="top">
       <a href="/" class="mark" data-mark aria-label="vuotogeometrico"></a>
       <div class="who">
@@ -1004,6 +1019,7 @@ Avevo altri esempi in mente nel tempo, ma ovviamente il mio cervello se li è gi
 <!-- ====================== FIGURE DATA ====================== -->
 <script id="figdata" type="application/json">[]</script>
 <script src="/assets/article.js"></script>
+
 
 
 </body>

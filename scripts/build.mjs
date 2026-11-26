@@ -330,7 +330,7 @@ function extractImageBlocks(raw){
 const TAGS = ['photography', 'software-engineering', 'random'];
 // the animated backdrop each tag gets in the right pane: canvas class and
 // script name (assets/<name>.js)
-const BACKDROPS = { 'software-engineering': 'rain', 'photography': 'photo' };
+const BACKDROPS = { 'software-engineering': 'rain', 'photography': 'photo', 'random': 'walk' };
 
 function parseArticle(dir, slugSet){
   const mdPath = path.join(dir, 'index.md');

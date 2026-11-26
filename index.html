@@ -62,6 +62,23 @@
     justify-content: space-between;
     transition: background-color .5s ease;
   }
+  /* the articles' backdrops (falling code, ground glass, pen trace), one
+     faded in while an entry with that tag is hovered or focused; the pane
+     is plain otherwise. Same placement as on the articles: the top half of
+     the pane, fading out towards the middle. */
+  .right > .backdrop{
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 50%;
+    pointer-events: none; z-index: -1;     /* above the pane colour, under its content */
+    color: var(--ink);
+    opacity: 0;
+    transition: opacity .7s ease;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 100%);
+  }
+  .right > .backdrop.on{ opacity: 1; }
+  .right:has(> .backdrop){ isolation: isolate; }
+  @media (max-width: 1024px){ .right > .backdrop{ display: none; } }
 
   /* ---------- mark ---------- */
   .mark{
@@ -259,15 +276,15 @@
       <div class="group rise">
         <h3 class="year">2026</h3>
         <ul class="entries">
-          <li><a class="entry" href="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/"><span class="date">Nov 24</span><span class="title">The Garlasco Case and the Building of an LLM Investigation Wiki</span></a></li>
-          <li><a class="entry" href="/a/sostantivi-fastidiosi/"><span class="date">Aug 27</span><span class="title">Sostantivi fastidiosi</span></a></li>
+          <li><a class="entry" href="/a/the-garlasco-case-and-the-building-of-an-llm-investigation-wiki/" data-tag="software-engineering"><span class="date">Nov 24</span><span class="title">The Garlasco Case and the Building of an LLM Investigation Wiki</span></a></li>
+          <li><a class="entry" href="/a/sostantivi-fastidiosi/" data-tag="random"><span class="date">Aug 27</span><span class="title">Sostantivi fastidiosi</span></a></li>
         </ul>
       </div>
 
       <div class="group rise" style="--d:60ms">
         <h3 class="year">2020</h3>
         <ul class="entries">
-          <li><a class="entry" href="/a/consonno-on-damaged-fomapan-100/"><span class="date">Feb 14</span><span class="title">Ruins of Consonno on damaged Fomapan 100</span></a></li>
+          <li><a class="entry" href="/a/consonno-on-damaged-fomapan-100/" data-tag="photography" data-photos="/a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_002@640w.jpg /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_003@640w.jpg /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_004@640w.jpg /a/consonno-on-damaged-fomapan-100/assets/4x5-Consonno_001@640w.jpg"><span class="date">Feb 14</span><span class="title">Ruins of Consonno on damaged Fomapan 100</span></a></li>
         </ul>
       </div>
     </div>
@@ -275,6 +292,9 @@
 
   <!-- ====================== RIGHT ====================== -->
   <aside class="pane right">
+    <canvas class="backdrop rain" data-tag="software-engineering" data-gated aria-hidden="true"></canvas>
+    <canvas class="backdrop photo" data-tag="photography" data-gated aria-hidden="true"></canvas>
+    <canvas class="backdrop walk" data-tag="random" data-gated aria-hidden="true"></canvas>
     <div class="top">
       <a href="/" class="mark" data-mark aria-label="vuotogeometrico"></a>
       <div class="who">
@@ -321,7 +341,39 @@
     }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
     els.forEach(el => io.observe(el));
   })();
+
+  // hovering or focusing an entry fades in its tag's backdrop in the right
+  // pane; a photography entry hands the photo backdrop one of its photos,
+  // kept for the visit so the same entry shows the same print
+  (() => {
+    const canvases = [...document.querySelectorAll('.right > .backdrop')];
+    if (!canvases.length) return;
+    let off = 0;
+    const show = entry => {
+      clearTimeout(off);
+      const c = canvases.find(c => c.dataset.tag === entry.dataset.tag);
+      if (c && c.classList.contains('photo')){
+        if (entry._photo === undefined){
+          const list = (entry.dataset.photos || '').split(' ').filter(Boolean);
+          entry._photo = list[Math.floor(Math.random() * list.length)] || '';
+        }
+        if (c.dataset.src !== entry._photo) c.dataset.src = entry._photo;
+      }
+      canvases.forEach(x => x.classList.toggle('on', x === c));
+    };
+    // a short grace period, so moving between entries doesn't flicker
+    const hide = () => { off = setTimeout(() => canvases.forEach(x => x.classList.remove('on')), 200); };
+    document.querySelectorAll('.entry').forEach(e => {
+      e.addEventListener('pointerenter', () => show(e));
+      e.addEventListener('pointerleave', hide);
+      e.addEventListener('focus', () => show(e));
+      e.addEventListener('blur', hide);
+    });
+  })();
 </script>
+<script src="/assets/rain.js"></script>
+<script src="/assets/photo.js"></script>
+<script src="/assets/walk.js"></script>
 
 </body>
 </html>

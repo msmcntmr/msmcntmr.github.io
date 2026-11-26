@@ -331,6 +331,10 @@ const TAGS = ['photography', 'software-engineering', 'random'];
 // the animated backdrop each tag gets in the right pane: canvas class and
 // script name (assets/<name>.js)
 const BACKDROPS = { 'software-engineering': 'rain', 'photography': 'photo', 'random': 'walk' };
+// the words of site.yml's role line that stand for each tag; on the home page
+// the word lights up while an entry with that tag is hovered. A word missing
+// from the role line is simply never highlighted.
+const TAG_WORDS = { 'photography': 'photography', 'software-engineering': 'software engineering', 'random': 'thoughts' };
 // the home page carries every backdrop, each shown only while an entry with
 // its tag is hovered or focused (data-gated keeps it still until then)
 const homeBackdrops = () => Object.entries(BACKDROPS)
@@ -747,12 +751,16 @@ function fill(tpl, vars){
 }
 
 const aboutHtml = (SITE.about || []).map(p => `      <p>${esc(p)}</p>`).join('\n');
+// the role line, each tag's word wrapped so the home page can highlight it
+// on hover; an article's own tag word comes already lit ("on")
+const roleHtml = (current = '') => Object.entries(TAG_WORDS).reduce((html, [tag, word]) =>
+  html.replace(esc(word), `<span class="role-word${tag === current ? ' on' : ''}" data-tag="${tag}">${esc(word)}</span>`), esc(SITE.role || ''));
 const sfDefaults = JSON.stringify(SITE.tweaks);
 
 function commonVars(){
   return {
     SITE_NAME: esc(SITE.name),
-    ROLE: esc(SITE.role),
+    ROLE: roleHtml(),
     ABOUT: aboutHtml,
     EMAIL: esc(SITE.email),
     SF_DEFAULTS: sfDefaults
@@ -837,6 +845,7 @@ for (let i = 0; i < articles.length; i++){
     ...commonVars(),
     PAGE_TITLE: `${esc(a.title)} — ${esc(SITE.name)}`,
     TAG_ATTR: a.tag ? ` data-tag="${esc(a.tag)}"` : '',
+    ROLE: roleHtml(a.tag),
     DESCRIPTION: esc(desc),
     DATE: fmtLong(a.date),
     TITLE: esc(a.title),

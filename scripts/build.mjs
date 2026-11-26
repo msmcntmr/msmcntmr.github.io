@@ -331,6 +331,12 @@ const TAGS = ['photography', 'software-engineering', 'random'];
 // the animated backdrop each tag gets in the right pane: canvas class and
 // script name (assets/<name>.js)
 const BACKDROPS = { 'software-engineering': 'rain', 'photography': 'photo', 'random': 'walk' };
+// the home page carries every backdrop, each shown only while an entry with
+// its tag is hovered or focused (data-gated keeps it still until then)
+const homeBackdrops = () => Object.entries(BACKDROPS)
+  .map(([tag, name]) => `    <canvas class="backdrop ${name}" data-tag="${tag}" data-gated aria-hidden="true"></canvas>`).join('\n');
+const homeBackdropScripts = () => [...new Set(Object.values(BACKDROPS))]
+  .map(name => `<script src="/assets/${name}.js"></script>`).join('\n');
 
 function parseArticle(dir, slugSet){
   const mdPath = path.join(dir, 'index.md');
@@ -809,6 +815,8 @@ if (dupes.length) throw new Error('duplicate slugs: ' + dupes.join(', '));
 for (let i = 0; i < articles.length; i++){
   const a = articles[i];
   const { html, figdata, firstParagraphText, hasMermaid } = await renderArticleBody(a, slugSet);
+  // the article's photographs, smallest rendition, for the home backdrop
+  a.photos = figdata.filter(f => f.src).map(f => f.img ? f.img.fallback.replace('{w}', f.img.widths[0]) : f.src);
 
   const prev = i > 0 ? articles[i - 1] : null;          // newer
   const next = i < articles.length - 1 ? articles[i + 1] : null; // older
@@ -863,7 +871,7 @@ let gi = 0;
 const groups = [...byYear.entries()].map(([year, list]) => {
   const delay = gi++ ? ` style="--d:${gi * 60 - 60}ms"` : '';
   const entries = list.map(a =>
-    `          <li><a class="entry" href="/a/${a.slug}/"><span class="date">${fmtShort(a.date)}</span><span class="title">${esc(a.title)}</span></a></li>`
+    `          <li><a class="entry" href="/a/${a.slug}/"${a.tag ? ` data-tag="${esc(a.tag)}"` : ''}${a.photos && a.photos.length ? ` data-photos="${esc(a.photos.join(' '))}"` : ''}><span class="date">${fmtShort(a.date)}</span><span class="title">${esc(a.title)}</span></a></li>`
   ).join('\n');
   return `      <div class="group rise"${delay}>
         <h3 class="year">${year}</h3>
@@ -878,6 +886,8 @@ fs.writeFileSync(path.join(OUT, 'index.html'), fill(tplIndex, {
   PAGE_TITLE: esc(SITE.name),
   DESCRIPTION: esc(SITE.description || ''),
   GROUPS: groups,
+  BACKDROP: homeBackdrops(),
+  BACKDROP_SCRIPT: homeBackdropScripts(),
   CANONICAL_URL: abs('/'),
   OG_TYPE: 'website',
   OG_TITLE: esc(SITE.name),

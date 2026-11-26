@@ -11,6 +11,8 @@
   const ctx = canvas.getContext('2d');
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
   const wide = matchMedia('(min-width: 1025px)');
+  // on the home page the backdrop animates only while shown (class "on")
+  const live = () => !canvas.hasAttribute('data-gated') || canvas.classList.contains('on');
 
   const COL = 9, ROW = 14;          // column spacing and row height, px
   const FONT = 12;                  // glyph size, px (up to ~7.4px wide)
@@ -89,12 +91,13 @@
       }
     }
     draw();
-    if (!calm.matches && !document.hidden) raf = requestAnimationFrame(frame);
+    if (!calm.matches && !document.hidden && live()) raf = requestAnimationFrame(frame);
     else last = 0;
   }
   const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
 
   new ResizeObserver(setup).observe(pane);
+  new MutationObserver(kick).observe(canvas, { attributes: true, attributeFilter: ['class'] });
   new MutationObserver(readInk).observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class', 'data-theme'] });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
   calm.addEventListener('change', kick);

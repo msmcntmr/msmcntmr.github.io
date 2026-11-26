@@ -62,6 +62,23 @@
     justify-content: space-between;
     transition: background-color .5s ease;
   }
+  /* the articles' backdrops (falling code, ground glass, pen trace), one
+     faded in while an entry with that tag is hovered or focused; the pane
+     is plain otherwise. Same placement as on the articles: the top half of
+     the pane, fading out towards the middle. */
+  .right > .backdrop{
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 50%;
+    pointer-events: none; z-index: -1;     /* above the pane colour, under its content */
+    color: var(--ink);
+    opacity: 0;
+    transition: opacity .7s ease;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 100%);
+  }
+  .right > .backdrop.on{ opacity: 1; }
+  .right:has(> .backdrop){ isolation: isolate; }
+  @media (max-width: 1024px){ .right > .backdrop{ display: none; } }
 
   /* ---------- mark ---------- */
   .mark{
@@ -262,6 +279,7 @@
 
   <!-- ====================== RIGHT ====================== -->
   <aside class="pane right">
+{{BACKDROP}}
     <div class="top">
       <a href="/" class="mark" data-mark aria-label="vuotogeometrico"></a>
       <div class="who">
@@ -307,7 +325,37 @@
     }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
     els.forEach(el => io.observe(el));
   })();
+
+  // hovering or focusing an entry fades in its tag's backdrop in the right
+  // pane; a photography entry hands the photo backdrop one of its photos,
+  // kept for the visit so the same entry shows the same print
+  (() => {
+    const canvases = [...document.querySelectorAll('.right > .backdrop')];
+    if (!canvases.length) return;
+    let off = 0;
+    const show = entry => {
+      clearTimeout(off);
+      const c = canvases.find(c => c.dataset.tag === entry.dataset.tag);
+      if (c && c.classList.contains('photo')){
+        if (entry._photo === undefined){
+          const list = (entry.dataset.photos || '').split(' ').filter(Boolean);
+          entry._photo = list[Math.floor(Math.random() * list.length)] || '';
+        }
+        if (c.dataset.src !== entry._photo) c.dataset.src = entry._photo;
+      }
+      canvases.forEach(x => x.classList.toggle('on', x === c));
+    };
+    // a short grace period, so moving between entries doesn't flicker
+    const hide = () => { off = setTimeout(() => canvases.forEach(x => x.classList.remove('on')), 200); };
+    document.querySelectorAll('.entry').forEach(e => {
+      e.addEventListener('pointerenter', () => show(e));
+      e.addEventListener('pointerleave', hide);
+      e.addEventListener('focus', () => show(e));
+      e.addEventListener('blur', hide);
+    });
+  })();
 </script>
+{{BACKDROP_SCRIPT}}
 
 </body>
 </html>

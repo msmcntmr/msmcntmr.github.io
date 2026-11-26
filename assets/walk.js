@@ -13,6 +13,8 @@
   const ctx = canvas.getContext('2d');
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
   const wide = matchMedia('(min-width: 1025px)');
+  // on the home page the backdrop animates only while shown (class "on")
+  const live = () => !canvas.hasAttribute('data-gated') || canvas.classList.contains('on');
   const FPS = 30;
 
   const STEP = 1.5;         // px per simulated step
@@ -97,10 +99,11 @@
       while (carry >= 1){ step(); carry -= 1; }
     }
     draw();
-    if (!calm.matches && !document.hidden) raf = requestAnimationFrame(frame);
+    if (!calm.matches && !document.hidden && live()) raf = requestAnimationFrame(frame);
     else last = 0;
   }
   const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
+  new MutationObserver(kick).observe(canvas, { attributes: true, attributeFilter: ['class'] });
 
   let pending = 0;
   function setup(){

@@ -22,6 +22,8 @@
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
   const wide = matchMedia('(min-width: 1025px)');
   const FPS = 30;
+  // on the home page the backdrop animates only while shown (class "on")
+  const live = () => !canvas.hasAttribute('data-gated') || canvas.classList.contains('on');
 
   let w = 0, h = 0, dpr = 1, ink = '0,0,0', raf = 0, last = 0, state = null;
 
@@ -129,16 +131,19 @@
 
   /* ---------------- print ---------------- */
   // one of the article's photographs, picked at random on each visit and
-  // loaded small (its 640px rendition)
+  // loaded small (its 640px rendition). On the home page there is no article:
+  // the hovered entry's photo arrives as the canvas's data-src instead.
   const photos = [...document.querySelectorAll('#body figure.photo img')];
   const photoEl = photos[Math.floor(Math.random() * photos.length)];
-  const photoSrc = photoEl && ((photoEl.getAttribute('srcset') || '').split(',')[0].trim().split(' ')[0] || photoEl.getAttribute('src'));
-  let photoImg = null;
+  let photoSrc = canvas.dataset.src || (photoEl && ((photoEl.getAttribute('srcset') || '').split(',')[0].trim().split(' ')[0] || photoEl.getAttribute('src'))) || '';
+  const photoCache = new Map();
   function withPhoto(cb){
-    if (photoImg){ cb(photoImg); return; }
+    const src = photoSrc;
+    if (photoCache.has(src)){ cb(photoCache.get(src)); return; }
     const im = new Image();
-    im.onload = () => { photoImg = im; cb(im); };
-    im.src = photoSrc;
+    // a photo that arrives after another was asked for is kept, not drawn
+    im.onload = () => { photoCache.set(src, im); if (src === photoSrc) cb(im); };
+    im.src = src;
   }
   // luminance (0..1) of the photo covering a lw×lh area, rotated 180° as
   // the image lies on a view camera's ground glass
@@ -239,14 +244,15 @@
       glass.draw(state.glass, now);
       grain.draw(state.grain, now);
     }
-    if (!calm.matches && !document.hidden) raf = requestAnimationFrame(frame);
+    if (!calm.matches && !document.hidden && live()) raf = requestAnimationFrame(frame);
     else last = 0;
   }
   const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
 
   // rebuild only when something the drawing depends on has changed: the
-  // canvas size, or the ink colour. Swapping the pane colours changes the
-  // paper under the drawing, not the drawing, so it needs no rebuild.
+  // canvas size, the ink colour, or the photograph. Swapping the pane colours
+  // changes the paper under the drawing, not the drawing, so it needs no
+  // rebuild.
   let built = '', pending = 0;
   function setup(){
     pending = 0;
@@ -255,7 +261,7 @@
     if (!r.width || !r.height) return;
     readInk();
     const d = Math.min(2, devicePixelRatio || 1);
-    const key = [Math.round(r.width), Math.round(r.height), d, ink].join('|');
+    const key = [Math.round(r.width), Math.round(r.height), d, ink, photoSrc].join('|');
     if (key === built) return;
     built = key;
     dpr = d;
@@ -272,6 +278,12 @@
   new ResizeObserver(schedule).observe(pane);
   // the reader can swap pane colours or change the palette
   new MutationObserver(schedule).observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class', 'data-theme'] });
+  // home page: shown or hidden (class), or handed another photograph (data-src)
+  new MutationObserver(() => {
+    const src = canvas.dataset.src || '';
+    if (canvas.hasAttribute('data-gated') && src !== photoSrc){ photoSrc = src; schedule(); }
+    kick();
+  }).observe(canvas, { attributes: true, attributeFilter: ['class', 'data-src'] });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
   calm.addEventListener('change', kick);
   wide.addEventListener('change', schedule);

@@ -356,3 +356,58 @@ body[data-panels="swapped"] .panel-swap .half{ transform: rotate(180deg); }
    rendered without modal wiring. */
 figure.photo.static{ cursor: default; }
 figure.photo.static:hover .ph{ transform: none; }
+
+/* panel-swap sweep (assets/shared.js): a same-document view transition.
+   The old snapshot stays still, the new one is uncovered from the cream pane
+   towards the white one (data-swapping="ltr" or "rtl"), and a hairline with
+   its own transition name travels along the edge. Edge and line both animate
+   layout-bound properties (clip-path, left) so they advance in the same frame.
+   The panes' own background fades are held off so the new snapshot is final. */
+html[data-swapping] .left,
+html[data-swapping] .right{ transition: none !important; }
+html[data-swapping]::view-transition-old(root){ animation: none; }
+html[data-swapping]::view-transition-new(root),
+html[data-swapping]::view-transition-group(sf-swap-line){
+  animation-duration: .72s;
+  animation-timing-function: cubic-bezier(.65,0,.35,1);
+  animation-fill-mode: both;
+}
+html[data-swapping="ltr"]::view-transition-new(root){ animation-name: sf-sweep-ltr; }
+html[data-swapping="rtl"]::view-transition-new(root){ animation-name: sf-sweep-rtl; }
+html[data-swapping="ltr"]::view-transition-group(sf-swap-line){ animation-name: sf-line-ltr; }
+html[data-swapping="rtl"]::view-transition-group(sf-swap-line){ animation-name: sf-line-rtl; }
+html[data-swapping]::view-transition-group(sf-swap-line){
+  background: color-mix(in oklab, var(--ink) 35%, transparent);
+}
+html[data-swapping]::view-transition-new(sf-swap-line){ animation: none; }
+/* the falling code (assets/rain.js) rides above the sweep as its own live
+   layer, so it keeps animating without the page being re-captured; its ink
+   is the same on either background, so it needs no reveal of its own */
+html[data-swapping] .right > .rain{ view-transition-name: sf-rain; }
+html[data-swapping]::view-transition-group(sf-rain),
+html[data-swapping]::view-transition-new(sf-rain){ animation: none; }
+html[data-swapping]::view-transition-old(sf-rain){ display: none; }
+.swap-line{
+  position: fixed; top: 0; left: 0;
+  width: 1px; height: 100vh;
+  pointer-events: none;   /* transparent itself: the line is painted on its transition group */
+  view-transition-name: sf-swap-line;
+}
+@keyframes sf-sweep-ltr{
+  from{ clip-path: inset(0 100% 0 0); }
+  to  { clip-path: inset(0 0 0 0); }
+}
+@keyframes sf-sweep-rtl{
+  from{ clip-path: inset(0 0 0 100%); }
+  to  { clip-path: inset(0 0 0 0); }
+}
+@keyframes sf-line-ltr{
+  from{ left: 0; }
+  95% { opacity: 1; }
+  to  { left: calc(100vw - 1px); opacity: 0; }
+}
+@keyframes sf-line-rtl{
+  from{ left: calc(100vw - 1px); }
+  95% { opacity: 1; }
+  to  { left: 0; opacity: 0; }
+}

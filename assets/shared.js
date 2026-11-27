@@ -539,9 +539,48 @@
 
   function initPanelSwap(btn){
     btn.addEventListener('click', () => {
+      if (wiping) return;
       const next = (window.__sf.state.panels === 'swapped') ? 'normal' : 'swapped';
-      window.__sf.set({ panels: next });
+      if (!swapWipe(next)) window.__sf.set({ panels: next });
     });
+  }
+
+  /* ====================================================================
+     PANEL-SWAP SWEEP (desktop only)
+     A same-document View Transition: the browser snapshots the page before
+     and after the swap, and the new snapshot is revealed behind a travelling
+     hairline (assets/shared.css, "panel-swap sweep"), always from the cream
+     pane towards the white one. Snapshots are composited as they are, so
+     images keep their colours. The new snapshot is live, so anything that
+     animates would force a re-capture every frame: the photo and walk
+     backdrops pause and resume on "sf:swap-end", while the falling code
+     gets a transition layer of its own and keeps falling above the sweep.
+     Elsewhere (mobile, reduced motion, no View Transitions) it swaps at once.
+     ==================================================================== */
+  let wiping = false;
+
+  function swapWipe(next){
+    if (!document.startViewTransition) return false;
+    if (!matchMedia('(min-width: 1025px)').matches) return false;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+
+    const root = document.documentElement;
+    const line = document.createElement('div');
+    line.className = 'swap-line';
+    wiping = true;
+    // the cream pane is on the left before a swap to 'swapped', on the right before a swap back
+    root.dataset.swapping = next === 'swapped' ? 'ltr' : 'rtl';
+    const vt = document.startViewTransition(() => {
+      window.__sf.set({ panels: next });
+      document.body.appendChild(line);   // only in the new state: it rides above the reveal
+    });
+    vt.finished.finally(() => {
+      line.remove();
+      delete root.dataset.swapping;
+      wiping = false;
+      document.dispatchEvent(new Event('sf:swap-end'));
+    });
+    return true;
   }
 
 })();

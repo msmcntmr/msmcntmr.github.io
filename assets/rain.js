@@ -12,6 +12,8 @@
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
   const wide = matchMedia('(min-width: 1025px)');
   // on the home page the backdrop animates only while shown (class "on")
+  // (it keeps running while the panes swap: assets/shared.css lifts it into its own
+  // transition layer, so it does not force the sweep to re-capture the page)
   const live = () => !canvas.hasAttribute('data-gated') || canvas.classList.contains('on');
 
   const COL = 9, ROW = 14;          // column spacing and row height, px

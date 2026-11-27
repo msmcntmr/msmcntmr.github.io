@@ -23,7 +23,9 @@
   const wide = matchMedia('(min-width: 1025px)');
   const FPS = 30;
   // on the home page the backdrop animates only while shown (class "on")
-  const live = () => !canvas.hasAttribute('data-gated') || canvas.classList.contains('on');
+  // paused while the panes swap (assets/shared.js), so the sweep's snapshot stays still
+  const live = () => (!canvas.hasAttribute('data-gated') || canvas.classList.contains('on'))
+    && !document.documentElement.hasAttribute('data-swapping');
 
   let w = 0, h = 0, dpr = 1, ink = '0,0,0', raf = 0, last = 0, state = null;
 
@@ -285,6 +287,7 @@
     kick();
   }).observe(canvas, { attributes: true, attributeFilter: ['class', 'data-src'] });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
+  document.addEventListener('sf:swap-end', kick);
   calm.addEventListener('change', kick);
   wide.addEventListener('change', schedule);
 })();

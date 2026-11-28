@@ -1,0 +1,1260 @@
+<!doctype html>
+<html lang="en" data-tag="software-engineering">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Letting the Garlasco LLM Wiki Run on Its Own — vuotogeometrico</title>
+<meta name="description" content="Part 3 — How the wiki learned to find its own sources, extract them in a single call and run unattended, what it cost, and what I would do differently" />
+<link rel="canonical" href="https://msmcntmr.github.io/a/letting-the-garlasco-llm-wiki-run-on-its-own/" />
+<meta property="og:type" content="article" />
+<meta property="og:site_name" content="vuotogeometrico" />
+<meta property="og:title" content="Letting the Garlasco LLM Wiki Run on Its Own" />
+<meta property="og:description" content="Part 3 — How the wiki learned to find its own sources, extract them in a single call and run unattended, what it cost, and what I would do differently" />
+<meta property="og:url" content="https://msmcntmr.github.io/a/letting-the-garlasco-llm-wiki-run-on-its-own/" />
+<meta property="og:image" content="https://msmcntmr.github.io/assets/og-default.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Letting the Garlasco LLM Wiki Run on Its Own" />
+<meta name="twitter:description" content="Part 3 — How the wiki learned to find its own sources, extract them in a single call and run unattended, what it cost, and what I would do differently" />
+<meta name="twitter:image" content="https://msmcntmr.github.io/assets/og-default.png" />
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+<link rel="alternate" type="application/atom+xml" title="vuotogeometrico" href="https://msmcntmr.github.io/feed.xml" />
+<link rel="stylesheet" href="/assets/shared.css" />
+<script>
+  window.__SF_DEFAULTS = {"typeface":"geist","titleface":"ebgaramond","textSize":18,"leading":1.55,"columnRatio":57,"bodyWidth":72,"palette":"warm-cream","scrim":"light","hover":"underline","panels":"swapped"};
+</script>
+<script src="/assets/shared.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--fs, 14px);
+    line-height: var(--lh, 1.55);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    letter-spacing: -0.005em;
+  }
+  ::selection{ background: var(--ink); color: var(--panel); }
+  a{ color: inherit; text-decoration: none; }
+
+  /* ---------- layout ---------- */
+  .stage{
+    display: grid;
+    grid-template-columns: minmax(0, var(--col-l, 58fr)) minmax(340px, var(--col-r, 42fr));
+    min-height: 100vh;
+    transition: grid-template-columns .55s cubic-bezier(.2,.7,.2,1);
+  }
+  .pane{ padding: 88px clamp(40px, 6vw, 96px) 120px; }
+  .left{ background: var(--pane-left-bg, var(--bg)); transition: background-color .5s ease; }
+  .right{
+    background: var(--pane-right-bg, var(--panel));
+    position: sticky;
+    top: 0;
+    align-self: start;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding-bottom: 88px;
+    transition: background-color .5s ease;
+  }
+  /* a faint animated backdrop in the top half of the pane, fading out towards
+     the middle: falling code on software-engineering articles
+     (assets/rain.js), a photographic one on photography articles
+     (assets/photo.js), a wandering pen trace on random articles
+     (assets/walk.js) */
+  .right > .backdrop{
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 50%;
+    pointer-events: none; z-index: -1;     /* above the pane colour, under its content */
+    color: var(--ink);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 0%, #000 30%, transparent 100%);
+  }
+  .right:has(> .backdrop){ isolation: isolate; }
+  @media (max-width: 1024px){ .right > .backdrop{ display: none; } }
+
+  /* ---------- reading rail: progress line in the article's right margin ----
+     A barely-there hairline, fixed to the viewport, sits past the sidenotes;
+     the part of the article on screen is drawn in ink over it. Short ticks mark the
+     chapters and darken once passed; the current chapter's title shows beside
+     its tick, and pointing near the rail lists every chapter.
+     article.js sets --seam-x from the article's right edge. Two-column
+     layout only. */
+  .seam{
+    --a: 0; --b: 0;                  /* 0..1 window on the rail, set by article.js */
+    --seam-pad: 32px;
+    --run: calc(100vh - 2 * var(--seam-pad));
+    position: fixed; left: var(--seam-x, -100px); top: 0;
+    width: 0; height: 100vh;
+    pointer-events: none;
+    z-index: 3;
+    opacity: 0;
+    transition: opacity .8s ease .2s;
+  }
+  .seam.on{ opacity: 1; }
+  /* open list: one backing for the whole rail, solid at the line and fading
+     to nothing towards the article, so the titles read over sidenotes without
+     each sitting on its own hard-edged box */
+  .seam::before{
+    content: ''; position: absolute; top: 0; height: 100vh;
+    right: -24px; width: 272px;
+    background: linear-gradient(to right,
+      transparent,
+      color-mix(in oklab, var(--pane-left-bg, var(--bg)) 85%, transparent) 40px,
+      var(--pane-left-bg, var(--bg)) 80px);
+    opacity: 0; pointer-events: none;
+    transition: opacity .25s ease;
+  }
+  .seam.open::before{ opacity: 1; }
+  /* the rail is ink at low strength, so it reads the same on white and
+     warm-cream (and if the reader swaps the two panes) */
+  /* track and segment share a mask that cuts a short gap at every chapter
+     tick, so the rail reads as one stretch per chapter (set by article.js) */
+  .seam-line{
+    position: absolute; left: -2px; top: 0;
+    width: 4px; height: 100vh;
+    -webkit-mask-image: var(--gaps, none);
+            mask-image: var(--gaps, none);
+  }
+  .seam-track, .seam-fill{
+    position: absolute; left: 1.5px; top: var(--seam-pad);
+    width: 1px;
+  }
+  .seam-track{ height: var(--run); background: color-mix(in oklab, var(--ink) 9%, transparent); }
+  /* the stretch of the article currently on screen; article.js moves its
+     two ends on springs, so it stretches while scrolling and settles back */
+  .seam-fill{
+    left: 1px; width: 2px; border-radius: 1px;
+    top: calc(var(--seam-pad) + var(--run) * var(--a));
+    height: calc(var(--run) * (var(--b) - var(--a)));
+    background: color-mix(in oklab, var(--ink) 55%, transparent);
+  }
+  .seam-ticks{ position: absolute; inset: 0; }
+  .seam-tick{
+    position: absolute; left: 0;
+    top: calc(var(--seam-pad) + var(--run) * var(--at));
+    width: 24px; height: 14px;
+    transform: translate(-50%, -50%);
+    padding: 0; border: 0; background: none; cursor: pointer;
+    pointer-events: auto;
+  }
+  .seam-tick::before{
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 9px; height: 1px; transform: translate(-50%, -50%);
+    background: color-mix(in oklab, var(--ink) 22%, transparent);
+    transition: background-color .4s ease, width .3s cubic-bezier(.2,.7,.2,1);
+  }
+  .seam-tick.passed::before{ background: color-mix(in oklab, var(--ink) 55%, transparent); }
+  .seam-tick:hover::before{ width: 15px; background: var(--ink); }
+  /* hover strip: pointing near the rail opens the full chapter list */
+  .seam-zone{
+    position: absolute; left: -26px; width: 52px; top: 0; height: 100vh;
+    pointer-events: auto;
+  }
+  /* chapter titles sit on the article side, right-aligned against the rail.
+     Closed: only the current chapter's title shows, over a soft patch of the
+     pane colour that fades out on every side (no hard-edged box over the
+     sidenotes it may pass). Open: every title, as a contents list. */
+  .seam-tick span{
+    position: absolute; right: 20px; top: 50%; z-index: 0;
+    transform: translate(4px, calc(-50% + var(--dy, 0px)));
+    /* one layout, open or closed: a title keeps to the gap between the text
+       column and the rail (--seam-room, set by article.js), wrapping when it
+       is too long, so nothing reflows as the list opens or closes */
+    width: max-content; max-width: var(--seam-room, 300px); text-align: right;
+    text-wrap: balance;
+    font-family: var(--title-font, inherit); font-weight: 500;
+    font-size: 14px; line-height: 1.3;
+    color: var(--mute);
+    padding: 2px 4px 2px 10px;
+    opacity: 0; pointer-events: none;
+    transition: opacity .25s ease, transform .3s cubic-bezier(.2,.7,.2,1), color .25s ease;
+  }
+  .seam-tick span::before{
+    content: ''; position: absolute; z-index: -1;
+    inset: -14px -16px -14px -36px;
+    background: var(--pane-left-bg, var(--bg));
+    -webkit-mask-image:
+      linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 12px), transparent),
+      linear-gradient(to bottom, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+    -webkit-mask-composite: source-in;
+            mask-image:
+      linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 12px), transparent),
+      linear-gradient(to bottom, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+            mask-composite: intersect;
+  }
+  .seam.open .seam-tick span::before{ display: none; }
+  .seam-tick.passed span{ color: color-mix(in oklab, var(--ink) 70%, var(--mute)); }
+  .seam-tick.current span{ color: var(--ink); }
+  .seam-tick.current span,
+  .seam.open .seam-tick span{ opacity: 1; transform: translate(0, calc(-50% + var(--dy, 0px))); }
+  /* with no usable gap (narrow two-column) the closed title stays hidden,
+     and the list's titles run on one line over the text instead */
+  .seam.cramped .seam-tick span{ white-space: nowrap; max-width: 300px; }
+  .seam.cramped:not(.open) .seam-tick span{ opacity: 0; }
+  .seam.open .seam-tick span{
+    pointer-events: auto; cursor: pointer;
+  }
+  .seam.open .seam-tick span:hover{ color: var(--ink); }
+  /* in the list, the current chapter keeps the tick at full ink */
+  .seam-tick.current::before{ width: 13px; background: var(--ink); }
+  @media (max-width: 1024px){ .seam{ display: none; } }
+
+  /* ---------- mark ---------- */
+  .mark{
+    display: inline-block;
+    width: 32px; height: 32px;
+    color: var(--ink);
+    margin-bottom: 72px;
+    overflow: visible;
+  }
+  .mark svg{ display:block; width:100%; height:100%; overflow: visible; }
+
+  /* ---------- back nav ---------- */
+  .back{
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--fs, 14px);
+    color: var(--mute);
+    margin-bottom: 64px;
+    transition: color .35s ease;
+  }
+  .back .arr{
+    display: inline-block;
+    transition: transform .4s cubic-bezier(.2,.7,.2,1);
+  }
+  .back:hover{ color: var(--ink); }
+  .back:hover .arr{ transform: translateX(-4px); }
+
+  /* ---------- article meta + title ---------- */
+  .meta{
+    color: var(--mute);
+    font-size: var(--fs, 14px);
+    margin-bottom: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ttl{
+    font-family: var(--title-font, var(--sans));
+    font-weight: 500;
+    font-size: clamp(22px, 1.6vw + 12px, 30px);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 0 0 56px;
+    max-width: 22ch;
+    text-wrap: balance;
+  }
+  /* per-face nudges so each option reads at its best */
+  body[data-titleface="instrument"]   .ttl{ font-weight: 400; font-style: italic; letter-spacing: -0.002em; font-size: clamp(28px, 2vw + 14px, 40px); line-height: 1.1; }
+  body[data-titleface="newsreader"]   .ttl{ font-weight: 400; letter-spacing: -0.005em; font-size: clamp(26px, 1.9vw + 13px, 36px); line-height: 1.15; }
+  body[data-titleface="bricolage"]    .ttl{ font-weight: 600; letter-spacing: -0.02em; font-size: clamp(28px, 2vw + 14px, 40px); line-height: 1.05; font-variation-settings: "opsz" 96; }
+  body[data-titleface="ebgaramond"]   .ttl{ font-weight: 500; letter-spacing: 0; font-size: clamp(26px, 1.9vw + 13px, 36px); line-height: 1.18; }
+  body[data-titleface="grotesk"]      .ttl{ font-weight: 500; letter-spacing: -0.015em; }
+  body[data-titleface="syne"]         .ttl{ font-weight: 600; letter-spacing: -0.015em; }
+
+  /* ---------- body (grid: text + sidenotes) ---------- */
+  .body{
+    display: grid;
+    grid-template-columns: minmax(0, var(--body-ch, 48ch)) 160px;
+    column-gap: 48px;
+    align-items: start;
+    font-size: calc(var(--fs, 14px) + 1px);
+    line-height: var(--lh, 1.55);
+  }
+  /* everything flows in the text column; only sidenotes use column 2
+     (lists and rules used to auto-place into the 160px sidenote track) */
+  .body > :not(.sidenote){ grid-column: 1; }
+
+  .body ul, .body ol{
+    margin: 0 0 1.2em;
+    padding-left: 1.3em;
+    line-height: calc(var(--lh, 1.55) * 1.08);
+  }
+  .body li{ margin-bottom: .5em; padding-left: .2em; }
+  .body li::marker{ color: var(--mute); }
+  .body li a[href]{ overflow-wrap: anywhere; }
+  .body hr{
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 1.2em 0 2.4em;
+  }
+  .body hr + :is(h2, h3){ margin-top: 0; }
+
+  /* tables: scroll inside their own box on narrow screens */
+  .body .table-wrap{
+    margin: 12px 0 36px;
+    overflow-x: auto;
+  }
+  .body table{
+    width: 100%;
+    min-width: 30em; /* below this, scroll inside .table-wrap instead of crushing columns */
+    border-collapse: collapse;
+    font-size: calc(var(--fs, 14px) * 0.85);
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+  }
+  .body th, .body td{
+    padding: 8px 12px 8px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    text-align: left;
+  }
+  .body thead th{
+    font-weight: 500;
+    color: var(--mute);
+    border-bottom-color: color-mix(in oklab, var(--ink) 35%, transparent);
+  }
+  .body th:last-child, .body td:last-child{ padding-right: 0; }
+  .body td code{ white-space: nowrap; }
+  /* endnotes: everything after a final rule + heading (heading keeps its size) */
+  .body hr.endnotes-rule ~ :is(p, ul, ol, blockquote){
+    font-size: calc(var(--fs, 14px) * 0.85);
+  }
+  .body hr.endnotes-rule ~ :is(ul, ol) li{ margin-bottom: .35em; }
+  .body > .sidenote{ grid-column: 2; }
+  .sidenote a, .sidenote code{ overflow-wrap: anywhere; }
+  /* two-column layout: a note hangs beside its paragraph without making
+     the grid row taller (which opened gaps between sections); article.js
+     nudges a note down only if it would overlap the previous one */
+  @media (min-width: 1101px){
+    .body > .sidenote{
+      height: 0;
+      margin-bottom: 0;
+      overflow: visible;
+      position: relative;
+    }
+  }
+
+  .body p{
+    margin: 0 0 1.2em;
+    text-wrap: pretty;
+    line-height: calc(var(--lh, 1.55) * 1.08);
+  }
+  .body p:last-child{ margin-bottom: 0; }
+
+  .body blockquote{
+    margin: 0 0 1.2em;
+    padding: 2px 0 2px 20px;
+    border-left: 2px solid color-mix(in oklab, var(--ink) 28%, transparent);
+    font-style: italic;
+  }
+  .body blockquote em{ font-style: normal; }
+  .body blockquote > :last-child{ margin-bottom: 0; }
+  .body blockquote li:last-child{ margin-bottom: 0; }
+
+  /* section headings: same face as the article title, quieter than it */
+  .body h2, .body h3{
+    font-family: var(--title-font, var(--sans));
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0;
+    text-wrap: balance;
+    margin: 1.5em 0 0.7em; /* + the preceding paragraph's 1.2em */
+  }
+  .body h2{ font-size: calc(var(--fs, 14px) * 1.4); }
+  .body h3{ font-size: calc(var(--fs, 14px) * 1.15); }
+  body[data-titleface="instrument"] .body :is(h2, h3){ font-weight: 400; font-style: italic; }
+  body[data-titleface="newsreader"] .body :is(h2, h3){ font-weight: 400; }
+  .body em{ font-style: italic; }
+
+  /* ---------- prose links ----------
+     Resting: hairline rule at 30% ink, like the index entries.
+     Hover: an ink line sweeps in from the left over it. Painted with
+     background gradients (not ::after) so it survives line wraps. */
+  .body a[href]{
+    color: inherit;
+    text-decoration: none;
+    padding-bottom: 0.12em;
+    background-image:
+      linear-gradient(currentColor, currentColor),
+      linear-gradient(color-mix(in oklab, currentColor 30%, transparent),
+                      color-mix(in oklab, currentColor 30%, transparent));
+    background-repeat: no-repeat;
+    background-position: 0 100%, 0 100%;
+    background-size: 0% 1px, 100% 1px;
+    transition: background-size .45s cubic-bezier(.2,.7,.2,1);
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+  .body a[href]:hover,
+  .body a[href]:focus-visible{ background-size: 100% 1px, 100% 1px; }
+
+  /* the build marks outbound links target="_blank"; they get the arrow
+     used elsewhere on the site, so "leaves the page" is visible up front */
+  .body a[target="_blank"]::after{
+    content: "\2197";
+    display: inline-block;
+    font-size: .78em;
+    line-height: 1;
+    margin-left: .18em;
+    vertical-align: .15em;
+    color: var(--mute);
+    transform: translate(-1px, 1px);
+    transition: transform .35s cubic-bezier(.2,.7,.2,1), color .25s ease;
+  }
+  .body a[target="_blank"]:hover::after{
+    color: var(--ink);
+    transform: translate(0, 0);
+  }
+
+  /* footnote markers keep their own (underline-free) treatment */
+  .body sup.fn-ref a[href]{
+    background-image: none;
+    padding-bottom: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .body a[href], .body a[target="_blank"]::after{ transition: none; }
+  }
+
+  /* ---------- footnote markers ---------- */
+  sup.fn-ref{
+    font-size: 0.7em;
+    line-height: 0;
+    vertical-align: super;
+    padding: 0 1px 0 2px;
+  }
+  sup.fn-ref a{
+    color: var(--mute);
+    border-bottom: 1px solid transparent;
+    transition: color .2s ease, border-color .2s ease;
+    font-variant-numeric: tabular-nums;
+  }
+  sup.fn-ref a:hover,
+  sup.fn-ref a.is-hover{
+    color: var(--ink);
+  }
+
+  /* sentence wrappers (for highlight-on-footnote-hover) */
+  .body p .sent{
+    border-radius: 2px;
+    padding: 1px 2px;
+    margin: 0 -2px;
+    background-color: transparent;
+    box-shadow: inset 0 0 0 0 transparent;
+    transition: background-color .25s ease, box-shadow .25s ease;
+  }
+  .body p .sent.is-hover-sent{
+    background-color: color-mix(in oklab, var(--ink) 9%, transparent);
+  }
+
+  /* ---------- sidenotes ---------- */
+  .sidenote{
+    font-size: calc(var(--fs, 14px) / 2 + 5px); /* 16→13, 18→14, 20→15 */
+    line-height: 1.5;
+    color: var(--mute);
+    margin: 0 0 24px;
+    font-variant-numeric: tabular-nums;
+    padding-top: 4px;
+    border-top: 1px solid var(--line);
+    transition: color .25s ease, border-color .25s ease;
+  }
+  .sidenote .num{
+    display: inline-block;
+    margin-right: 6px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .sidenote.is-hover{ color: var(--ink); border-top-color: var(--ink); }
+
+  /* ---------- figures (images) ---------- */
+  figure.photo{
+    margin: 28px 0 36px;
+    padding: 0;
+    cursor: zoom-in;
+    display: block;
+  }
+  figure.photo .ph{
+    width: 100%;
+    aspect-ratio: var(--ratio, 4/3);
+    overflow: hidden;
+    position: relative;
+    background: var(--panel);
+    transition: transform .6s cubic-bezier(.2,.7,.2,1);
+  }
+  figure.photo:hover .ph{ transform: translateY(-2px); }
+  figure.photo .ph picture{ display: contents; }
+  figure.photo .ph img{
+    display: block; width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  figure.photo .ph.placeholder{
+    background:
+      repeating-linear-gradient(
+        135deg,
+        color-mix(in oklab, var(--ink) 6%, transparent) 0 1px,
+        transparent 1px 12px
+      ),
+      var(--tone, color-mix(in oklab, var(--panel) 80%, var(--ink) 4%));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  figure.photo .ph.placeholder .ph-label{
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--mute);
+    background: var(--panel);
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+  }
+  figure.photo figcaption{
+    margin-top: 14px;
+    /* scales with --fs but at HALF rate: 16→13, 18→14, 20→15 */
+    font-size: calc(var(--fs, 14px) / 2 + 5px);
+    line-height: 1.55;
+    color: var(--mute);
+    display: grid;
+    gap: 6px;
+    max-width: 60ch;
+  }
+  figure.photo figcaption .cap-title{
+    color: var(--ink);
+    font-size: calc(var(--fs, 14px) / 2 + 6px);
+  }
+  figure.photo figcaption .cap-caption{
+    font-style: italic;
+    text-wrap: pretty;
+  }
+  figure.photo figcaption .cap-zoom{
+    justify-self: start;
+    margin-top: 2px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: .55;
+    transition: opacity .25s ease, color .25s ease;
+  }
+  figure.photo:hover figcaption .cap-zoom{ opacity: 1; color: var(--ink); }
+
+  /* ---------- abstract (frontmatter "abstract:") ---------- */
+  .ttl:has(+ .abstract){ margin-bottom: 20px; }
+  .abstract{
+    margin: 0 0 56px;
+    max-width: min(var(--body-ch, 48ch), 100%);
+    color: color-mix(in oklab, var(--ink) 78%, var(--bg));
+    font-size: calc(var(--fs, 14px) * 1.2);
+    line-height: 1.4;
+    text-wrap: pretty;
+  }
+
+  /* ---------- mermaid diagrams ---------- */
+  figure.diagram{
+    margin: 12px 0 36px;
+    padding: 8px 0;
+    border: none;
+    background: transparent;
+    overflow-x: auto;
+  }
+  figure.diagram pre.mermaid{
+    margin: 0;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--mute);
+    white-space: pre;
+  }
+  figure.diagram pre.mermaid[data-rendered]{
+    display: flex;
+    justify-content: safe center; /* plain center clips the left edge of an overflowing diagram */
+    white-space: normal;
+  }
+  figure.diagram svg{ width: 100%; height: auto; background: transparent !important; }
+
+  /* ---------- code blocks (IDE-style) ---------- */
+  figure.ide{
+    margin: 12px 0 36px; /* + the preceding paragraph's 1.2em ≈ 36px above */
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--panel);
+    color: var(--ink);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: calc(var(--fs, 14px) / 2 + 5px); /* 16→13, 18→14, 20→15 */
+    line-height: 1.7;
+  }
+  figure.ide .ide-head{
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in oklab, var(--bg) 55%, var(--ink) 5%);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--mute);
+  }
+  figure.ide .ide-head .file{ color: var(--ink); }
+  figure.ide .ide-head .dot{
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--mute); opacity: .55;
+  }
+  figure.ide .ide-head .lang{
+    margin-left: auto;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 9.5px;
+  }
+  figure.ide .ide-body{
+    overflow-x: auto;
+    padding: 12px 0;
+    /* one shared column as wide as the longest line (never narrower than the
+       box), so every row's stripe reaches the end when scrolled */
+    display: grid;
+    grid-template-columns: minmax(max-content, 1fr);
+  }
+  figure.ide .ln{
+    display: grid;
+    grid-template-columns: 52px 1fr;
+    --row-bg: transparent;
+    background: var(--row-bg);
+    min-width: max-content;
+  }
+  figure.ide .ln:nth-child(even){ --row-bg: color-mix(in oklab, var(--panel) 98%, var(--ink) 2%); }
+  figure.ide .ln:hover{ --row-bg: color-mix(in oklab, var(--ink) 5%, transparent); }
+  figure.ide .num{
+    position: sticky;
+    left: 0;
+    /* opaque: it is sticky, so scrolled code passes underneath it */
+    background: linear-gradient(var(--row-bg), var(--row-bg)), var(--panel);
+    text-align: right;
+    padding: 0 14px 0 8px;
+    color: color-mix(in oklab, var(--mute) 50%, var(--panel));
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+    border-right: 1px solid color-mix(in oklab, var(--line) 60%, transparent);
+    z-index: 1;
+  }
+  figure.ide .src{
+    padding: 0 18px 0 16px;
+    white-space: pre;
+  }
+  /* syntax tokens — palette-driven where possible */
+  figure.ide .t-c{ color: color-mix(in oklab, var(--ink) 40%, transparent); font-style: italic; }
+  figure.ide .t-s{ color: oklch(0.50 0.10 145); }       /* string — moss green */
+  figure.ide .t-k{ color: var(--ink); font-weight: 600; }
+  figure.ide .t-n{ color: oklch(0.55 0.10 60); }        /* number — warm brown */
+  figure.ide .t-v{ color: oklch(0.50 0.13 250); }       /* identifier — steel blue */
+  figure.ide .t-t{ color: oklch(0.50 0.10 295); }       /* type — soft violet */
+
+  /* ---------- prev/next ---------- */
+  .pager{
+    margin-top: 96px;
+    padding-top: 28px;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .pager a{
+    display: block;
+    color: var(--mute);
+    font-size: var(--fs, 14px);
+    transition: color .35s ease, transform .4s cubic-bezier(.2,.7,.2,1);
+  }
+  .pager a:hover{ color: var(--ink); }
+  .pager .label{
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    opacity: .6;
+  }
+  .pager .next{ text-align: right; }
+  .pager .prev:hover{ transform: translateX(-4px); }
+  .pager .next:hover{ transform: translateX(4px); }
+  .pager .empty{ visibility: hidden; }
+
+  /* ---------- right pane (identity + about) ---------- */
+  .who .name{ font-weight: 500; font-size: var(--fs, 14px); }
+  .who .role{ font-weight: 400; font-size: var(--fs, 14px); color: var(--mute); }
+  /* the word of the role line standing for this article's tag, in full ink */
+  .who .role .role-word.on{ color: var(--ink); }
+
+  .about{
+    max-width: 38ch;
+    font-size: var(--fs, 14px);
+    line-height: var(--lh, 1.55);
+  }
+  .about p{ margin: 0 0 16px; }
+  .about p:last-child{ margin-bottom: 0; }
+  .about .email{ display: inline-block; margin-top: 28px; position: relative; }
+  .about .email::after{
+    content:""; position:absolute; left:0; right:0; bottom:1px;
+    height:1px; background:currentColor; opacity:.35;
+    transition: opacity .35s ease;
+  }
+  .about .email:hover::after{ opacity: 1; }
+
+  /* ---------- entry stagger ---------- */
+  .fade > *{
+    opacity: 0;
+    transform: translateY(8px);
+    animation: rise .7s cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .fade > *:nth-child(1){ animation-delay: 20ms }
+  .fade > *:nth-child(2){ animation-delay: 100ms }
+  .fade > *:nth-child(3){ animation-delay: 180ms }
+  .fade > *:nth-child(4){ animation-delay: 260ms }
+  .fade > *:nth-child(5){ animation-delay: 340ms }
+  @keyframes rise{ to{ opacity:1; transform:none } }
+
+  /* ---------- fullscreen modal ---------- */
+  .modal[hidden]{ display:none; }
+  .modal{
+    position: fixed; inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    cursor: zoom-out;
+  }
+  /* explicit positive stacking: without it Chrome drops the backdrop blur
+     once the scrim's fade-in transition ends (blurred, then sharp again) */
+  .modal .scrim{
+    position: absolute; inset: 0;
+    z-index: 1;
+    background: var(--scrim-bg, rgba(0,0,0,0.72));
+    opacity: 0;
+    transition: opacity .35s ease;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .modal.open .scrim{ opacity: 1; }
+  .modal-inner{
+    position: relative;
+    z-index: 2;
+    width: min(1400px, 94vw);
+    height: min(820px, 88vh);
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    background: var(--panel);
+    box-shadow: 0 40px 80px -20px rgba(0,0,0,.4);
+    opacity: 0;
+    transform: translateY(12px) scale(.985);
+    transition: opacity .45s cubic-bezier(.2,.7,.2,1), transform .55s cubic-bezier(.2,.7,.2,1);
+    cursor: default;
+  }
+  .modal.open .modal-inner{ opacity: 1; transform: none; }
+
+  .modal-img{
+    background: color-mix(in oklab, var(--bg) 92%, var(--ink) 6%);
+    overflow: hidden;
+    position: relative;
+  }
+  .modal-img .ph:has(img){ cursor: zoom-in; }
+  .modal-img.panning .ph{ cursor: none; }
+  .modal-img .pan-hint{
+    position: absolute;
+    left: 14px; bottom: 14px;
+    z-index: 3;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: color-mix(in oklab, var(--panel) 86%, transparent);
+    padding: 6px 9px;
+    border: 1px solid var(--line);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity .35s ease, transform .35s ease;
+  }
+  .modal-img:hover .pan-hint{ opacity: 1; transform: none; }
+  .modal-img.panning .pan-hint{
+    opacity: 1; transform: none;
+    background: var(--ink);
+    color: var(--panel);
+    border-color: var(--ink);
+  }
+  .modal-img .pan-cursor{
+    position: absolute;
+    width: 26px; height: 26px;
+    border: 1px solid var(--panel);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.35);
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    transition: opacity .2s ease;
+    z-index: 4;
+    mix-blend-mode: difference;
+  }
+  .modal-img.panning .pan-cursor{ opacity: 1; }
+  .modal-img .ph{
+    width: 100%; height: 100%;
+    display: flex; align-items:center; justify-content:center;
+  }
+  .modal-img .ph picture{ display: contents; }
+  .modal-img .ph.placeholder{
+    background:
+      repeating-linear-gradient(
+        135deg,
+        color-mix(in oklab, var(--ink) 5%, transparent) 0 1px,
+        transparent 1px 14px
+      ),
+      var(--tone, color-mix(in oklab, var(--panel) 80%, var(--ink) 4%));
+  }
+  .modal-img .ph.placeholder .ph-label{
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mute);
+    background: var(--panel);
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+  }
+  .modal-img img{
+    width: 100%; height: 100%; object-fit: contain;
+    object-position: 50% 50%;
+    background: transparent;
+    transition: object-position .12s linear;
+  }
+  .modal-img.panning img{
+    object-fit: cover;
+    transition: none;
+  }
+
+  .modal-meta{
+    padding: 56px 56px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    color: var(--ink);
+  }
+  .modal-meta .eyebrow{
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mute);
+    margin-bottom: 24px;
+  }
+  .modal-meta h2{
+    font-weight: 500;
+    font-size: calc(var(--fs, 14px) / 2 + 14px); /* 16→22, 20→24 */
+    line-height: 1.25;
+    margin: 0 0 16px;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+  .modal-meta .caption{
+    margin: 0 0 24px;
+    color: var(--ink);
+    font-size: calc(var(--fs, 14px) / 2 + 7px); /* 16→15, 18→16, 20→17 */
+    line-height: 1.55;
+    font-style: italic;
+  }
+  .modal-meta .desc{
+    margin: 0 0 36px;
+    color: var(--ink);
+    font-size: calc(var(--fs, 14px) / 2 + 7px);
+    line-height: 1.65;
+  }
+  .modal-meta .desc p{
+    margin: 0 0 1em;
+    text-wrap: pretty;
+  }
+  .modal-meta .desc p:last-child{ margin-bottom: 0; }
+  .modal-meta dl.tech{
+    margin: auto 0 0;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 24px;
+    row-gap: 10px;
+    font-size: 12.5px;
+  }
+  .modal-meta dl.tech dt{
+    color: var(--mute);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 10.5px;
+    padding-top: 2px;
+  }
+  .modal-meta dl.tech dd{ margin: 0; }
+
+  @media (max-width: 1024px){
+    .modal-inner{
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(180px, 42vh) 1fr;
+      width: 94vw; height: 92vh;
+    }
+    .modal-meta{ padding: 24px; }
+    .modal-meta h2{ font-size: 20px; }
+    .modal-meta dl.tech{ margin-top: 16px; }
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1100px){
+    .body{
+      display: block;
+      max-width: min(var(--body-ch, 56ch), 100%);
+    }
+    .body > .sidenote{
+      display: block;
+      margin: -4px 0 18px;
+      padding: 8px 0 0;
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+    }
+  }
+
+  @media (max-width: 1024px){
+    .pane{ padding: 40px clamp(20px, 5vw, 44px) 64px; }
+    .back{ margin-bottom: 32px; }
+    .ttl{ margin-bottom: 32px; }
+    .abstract{ margin-bottom: 32px; }
+    .pager{ margin-top: 64px; grid-template-columns: 1fr; gap: 20px; }
+    .pager .next{ text-align: left; }
+    .pager .next:hover{ transform: translateX(-4px); }
+    figure.photo{ margin: 20px 0 28px; }
+  }
+
+  /* phones: keep the title > heading > abstract > body hierarchy when
+     the title itself shrinks to its 26px floor */
+  @media (max-width: 640px){
+    .body h2{ font-size: calc(var(--fs, 14px) * 1.25); }
+    .body h3{ font-size: calc(var(--fs, 14px) * 1.1); }
+    .abstract{ font-size: calc(var(--fs, 14px) * 1.12); }
+    figure.diagram{ padding: 16px 8px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation: none !important; transition: none !important; }
+    .fade > *{ opacity:1; transform:none; }
+  }
+</style>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"Letting the Garlasco LLM Wiki Run on Its Own","datePublished":"2026-11-28","description":"Part 3 — How the wiki learned to find its own sources, extract them in a single call and run unattended, what it cost, and what I would do differently","url":"https://msmcntmr.github.io/a/letting-the-garlasco-llm-wiki-run-on-its-own/","author":{"@type":"Person","name":"vuotogeometrico"},"image":"https://msmcntmr.github.io/assets/og-default.png"}</script>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ====================== LEFT — article ====================== -->
+  <section class="pane left">
+    <div class="seam" data-seam>
+      <div class="seam-line">
+        <div class="seam-track"></div>
+        <div class="seam-fill"></div>
+      </div>
+      <div class="seam-ticks"></div>
+    </div>
+    <div class="fade">
+      <a class="back" href="/"><span class="arr">←</span><span>vuotogeometrico</span></a>
+      <div class="meta" id="meta">November 28, 2026</div>
+      <h1 class="ttl" id="ttl">Letting the Garlasco LLM Wiki Run on Its Own</h1>
+<p class="abstract">Part 3 — How the wiki learned to find its own sources, extract them in a single call and run unattended, what it cost, and what I would do differently</p>
+      <article class="body" id="body">
+<p><span class="sent">At the end of <a href="/a/from-prose-to-claims-rebuilding-the-garlasco-llm-wiki/">the second part</a> the investigation wiki on the murder of Chiara Poggi had become something closer to a database than to a notebook.</span><span class="sent"> Every fact sat in a claims ledger and was anchored to a verbatim quote from its raw file, a verifier rejected anything it could not match, and a generator rebuilt the timeline, the indexes and the chronologies from the claims on every build.</span><span class="sent"> Maintenance had become mechanical.</span><span class="sent"> What had not, as I wrote at the end of that part, was everything around it: the sources still had to be found, converted and filed by hand, and every ingest session still started with a model reading the operating manual, the workflow, the schema and the entity registry before it even looked at the article.</span></p>
+<p><span class="sent">This third part is about those two costs and what I did about them: a crawler that looks for new material on its own and lets a model sort the inbox, an extraction that turns an article into claims with a single call instead of a session of agents, and a loop that decides what the wiki needs next and runs it unattended, sometimes for a whole night.</span><span class="sent"> All of it was measured as it went, so this part has more numbers than the previous two.</span><span class="sent"> It also closes the series, so the last two chapters step back from the machinery and look at the project as a whole, with everything I think is wrong with it and what I would do differently if I started over.</span><span class="sent" data-fns="1"> As before, you can browse <a href="https://msmcntmr.github.io/garlasco-llm-wiki/">the public wiki</a> while you read, and everything I quote comes from the repository<sup class="fn-ref"><a href="#fn-1" data-fn="1">1</a></sup>.</span></p>
+<aside class="sidenote" id="fn-1" data-fn="1"><span class="num">1</span>The vault&#39;s git history and the logs written by the crawler and by the loop are the source for every count, size and excerpt in this article. Log lines are quoted with their timestamps and some long identifiers removed.</aside>
+<h2>1. What was left</h2>
+<p><span class="sent">By the time the backfill was finished, the work of keeping the wiki consistent had moved almost entirely into code, and I could finally see what an ingest actually cost once the bookkeeping was taken away.</span><span class="sent"> The answer was a little embarrassing, because most of the cost had nothing to do with the wiki.</span></p>
+<p><span class="sent">On my side there was sourcing.</span><span class="sent"> For months every article reached the vault through the same ritual: I found it, opened it in the browser, clipped it to markdown with Obsidian&#39;s Web Clipper, checked the name and the folder, and only then did the agent see it.</span><span class="sent"> The two big jumps in the chart of Part 1, the local paper&#39;s archive and the batch from Panorama and Libero, were each the result of a few long evenings of that, and in between the corpus only grew as fast as my free time allowed.</span><span class="sent"> Court documents and police reports were worse, because they almost never come from a newspaper&#39;s website and turn up instead as links shared by journalists or by YouTube channels that follow the case, so finding them meant watching and reading a lot of material that was not itself going into the wiki.</span></p>
+<p><span class="sent">On the model&#39;s side there was the agent loop.</span><span class="sent"> An ingest was still a session in which an orchestrating agent read the manual, delegated each source to a subagent, and each subagent in turn read the manual, the workflow, the schema and the registry before reading its article.</span><span class="sent"> Distill sessions were heavier still, since they had to open the large curated pages they were supposed to rewrite.</span><span class="sent"> None of this was wrong, and the guarantees from Part 2 held throughout, but it meant that the price of adding one more article was set by the ceremony around it, not by the article itself.</span></p>
+<h2>2. A crawler with no budget</h2>
+<p><span class="sent">I started with sourcing, because it was the part that depended on me, and I wrote down the constraints before any code.</span><span class="sent"> The crawler had to run on my own Mac, with a launchd job firing every hour.</span><span class="sent"> It had to cost nothing, which ruled out paid scraping services and paid APIs and left only public feeds, free search radars and open source tools.</span><span class="sent"> It had to find sources of every kind (articles from any outlet, YouTube videos, linked PDFs, radio and TV), and above all it had to leave the decision to me, at least at first: the crawler would propose and I would approve, and only the approved items would be converted into markdown and enter the wiki.</span></p>
+<p><span class="sent">The most important design choice was also the most boring one, and it came straight from the first hard rule of the vault, the one that says <code>raw/</code> is immutable.</span><span class="sent"> A queue of candidates is by definition something you edit and throw away, so it could not live inside <code>raw/</code>.</span><span class="sent"> It lives instead in a <code>crawler/</code> directory at the root of the vault, with its state in a small SQLite database, and the only command allowed to write into <code>raw/</code> is the one that converts an approved item, which writes it under <code>raw/converted/</code> and never moves it again.</span><span class="sent"> Whether a converted file has been ingested is not a flag anyone sets either, since the status command simply checks whether any claims file cites it, which is the same trick the duplicate check of Part 2 relies on.</span></p>
+<figure class="diagram"><pre class="mermaid">flowchart TB
+    L["launchd, every hour"] --&gt; D["discover&lt;br/&gt;news radars, feeds, YouTube"]
+    D --&gt; Q[("queue&lt;br/&gt;crawler/state.sqlite")]
+    Q --&gt; I["INBOX.md&lt;br/&gt;checkboxes in Obsidian"]
+    I --&gt;|approved| C["convert"]
+    C --&gt; R["raw/converted/"]
+    C --&gt; J["converted.jsonl"]
+    R --&gt;|ingest| W["claims and&lt;br/&gt;source page"]
+    W -.-&gt;|"cited = ingested&amp;nbsp;"| J</pre></figure>
+<p><span class="sent">Approval happens in Obsidian, which was already where I read the wiki.</span><span class="sent"> Every run of the crawler rewrites a digest file, <code>crawler/INBOX.md</code>, with one checkbox per candidate showing its title, outlet, date, relevance score, a short excerpt and a flag when it sits behind a paywall, and I approve an item by ticking it with <code>[x]</code> and reject it with <code>[-]</code>, a second kind of checkbox that the Obsidian theme I use happens to render.</span><span class="sent"> When the hourly job finds something above the relevance threshold, it sends a macOS notification, which I have to say is the first feature of the whole project that made it feel a bit like a product.</span></p>
+<p><span class="sent">The converted files keep the exact frontmatter the Web Clipper used to write (title, source URL, author, publication date, description, tags with the year quoted as a string), so that from the point of view of the ingest a crawled article is indistinguishable from one I clipped by hand.</span><span class="sent"> The file name follows the convention of the rest of the corpus, the publication date followed by an ASCII slug of the title, and before writing it the crawler checks that the name is unique across the whole of <code>raw/</code>, because some of the old migration scripts look files up by name and expect exactly one match.</span></p>
+<h2>3. Finding sources nobody listed</h2>
+<p><span class="sent">The part I enjoyed designing the most was discovery, because I did not want to maintain lists of outlets, channels and programmes by hand, which would have been a smaller version of the same bookkeeping problem that Part 2 was about.</span><span class="sent"> So the lists build themselves, and whatever the crawler learns is written to <code>crawler/discovered.yaml</code>, a file tracked in git, so that I can see what it has learned and when.</span></p>
+<p><span class="sent">Google News is the main radar.</span><span class="sent"> Its RSS search endpoint, queried with a handful of fixed terms such as the name of the town and the names of the people at the centre of the case, returns about a hundred items per query from dozens of outlets, but its links turned out to be encoded redirects that a plain HTTP request cannot resolve.</span><span class="sent"> So the crawler uses it as a radar rather than as a source: it takes the title, the outlet and the date from Google News, and then looks for the real article, first by matching it against the outlets&#39; own RSS feeds, then by decoding the link with a fragile method kept isolated in a function of its own, and finally, when converting, with a headless browser.</span><span class="sent"> GDELT, a free news index with no key, works as a second radar, and the fixed set of queries is enriched automatically with the names that appear in the most recent sources of the wiki, with a cap so that a busy week does not multiply the requests.</span></p>
+<p><span class="sent">Outlets and channels are learned from what the radars find.</span><span class="sent"> An outlet that turns up with three or more relevant articles gets its RSS feed looked up from the page itself and is queried directly from then on, and a YouTube channel with two or more relevant videos is promoted to &quot;followed&quot;, which means that its own video feed is read on every run, so that no video is missed even when the search does not show it.</span><span class="sent"> The YouTube search itself goes through <code>yt-dlp</code>, which needs no API key and finds videos from any channel, including the dozens of small ones that have made the case their main subject.</span></p>
+<p><span class="sent">Two things keep this from drowning in noise.</span><span class="sent"> The first is deduplication, which matters more than it seems, because the same story reaches the radars through several paths (the outlet&#39;s site, its AMP version, its mobile version, a syndicated copy on another site).</span><span class="sent"> Every URL is normalized, with tracking parameters, AMP suffixes and the <code>www</code> removed, and compared against the source URLs of every file in <code>raw/</code> and every source page of the wiki, while a second key made of the outlet&#39;s domain, the date and the normalized title catches the copies whose URLs differ, and PDFs are compared by their hash.</span><span class="sent"> The second is relevance, which is scored without any model: the crawler counts how often the aliases of the wiki&#39;s entities (taken from the generated <code>entities.json</code>) appear in the title and in the body, and an item whose title names one of the core terms scores high, while one that mentions them only in the body needs more than one entity to make it into the digest.</span></p>
+<h2>4. Where the paywall line goes</h2>
+<p><span class="sent">A good part of the Italian press that covers the case is behind a paywall, and this is the point where I had to decide what the crawler was allowed to do, so I would like to be explicit about it.</span></p>
+<p><span class="sent">The crawler does three things, in this order.</span><span class="sent"> It first looks for a free version of the same story, since almost every article in a national paper about a hearing or a new expert report is also covered by a news agency, a public broadcaster or a free regional outlet, and what the wiki needs is the fact with a citable source, not a particular newspaper.</span><span class="sent"> It then tries the outlet&#39;s full-text RSS feed, when there is one.</span><span class="sent"> Finally, it asks the Internet Archive whether a snapshot of the page already exists, through the Wayback Machine&#39;s public API, and uses it when it contains the full text, keeping the original URL in the frontmatter and adding the address of the snapshot next to it.</span><span class="sent"> Whatever is left ends up in a list of articles to clip by hand, which I open with my own subscriptions when I think they are worth it.</span></p>
+<p><span class="sent">What the crawler does not do is query the services that remove paywalls, such as archive.today or 12ft and their many clones.</span><span class="sent"> The reasoning, as I wrote it in the design document at the time, is that those sites are not archives that happened to index a page, since the full texts they serve are obtained by getting around the paywall, and calling them systematically for an entire corpus would mean building the bypass by proxy.</span><span class="sent"> What I do by hand from my browser remains my choice, but the crawler does not automate it.</span></p>
+<p><span class="sent">There is also the question of what gets published.</span><span class="sent"> The converted files stay in the private vault, because the configuration of the public site already excluded <code>raw/</code> (and, after one small change, <code>crawler/</code> as well), so what appears on the site is what has always appeared there: source pages with a summary, claims with short attributed quotes, and the pages built from them.</span></p>
+<h2>5. Videos, documents and scans</h2>
+<p><span class="sent">Articles were the easy case.</span><span class="sent"> A large part of the public conversation about this case, including a surprising amount of primary material, happens on YouTube, in live streams where lawyers and consultants are interviewed for hours, in TV segments re-uploaded by their broadcasters, and in videos where someone reads a document aloud and puts a link to it in the description.</span></p>
+<p><span class="sent">For a video, the crawler downloads only the automatic Italian subtitles, without the video itself, and turns them into a markdown file with the description, the links and the transcript split into paragraphs with timestamps.</span><span class="sent"> When a video has no subtitles, it can be transcribed locally with OpenAI&#39;s speech recognition model, <a href="https://github.com/openai/whisper" target="_blank" rel="noopener noreferrer">Whisper</a> (the large-v3-turbo version, run through <a href="https://github.com/ml-explore/mlx-examples/tree/main/whisper" target="_blank" rel="noopener noreferrer">mlx-whisper</a>, a port for Apple Silicon), which on my machine takes about an eighth of the video&#39;s duration, so a two-hour live stream is ready in a quarter of an hour.</span><span class="sent"> Links to PDFs, Google Drive folders and shared documents found in descriptions and articles go into the queue on their own as new items, and scanned PDFs are run through <a href="https://github.com/tesseract-ocr/tesseract/" target="_blank" rel="noopener noreferrer">Tesseract</a>&#39;s Italian OCR model, at a few seconds per page.</span></p>
+<p><span class="sent">The converted files reflect this.</span><span class="sent"> Of the roughly seven hundred items the crawler has converted so far, more than half are videos, about a third are articles and only a handful are documents, and in the claims ledger today almost four hundred sources come from YouTube transcripts.</span><span class="sent"> That is a big change in the nature of the corpus, and the operating manual tries to account for it: automatic transcripts are not verbatim in any reliable sense, so claims extracted from them have to carry a cautious confidence, and the source page has to say so in its reliability notes.</span><span class="sent"> I will come back to whether that is enough.</span></p>
+<h2>6. Letting a model sort the inbox</h2>
+<p><span class="sent">The inbox worked as designed, and it was the design that turned out to be wrong, because a crawler that finds everything also finds an enormous amount of commentary.</span><span class="sent"> In the busiest weeks a single day could bring dozens of candidates, most of them talk shows re-uploaded in pieces, opinion videos and articles repeating each other, and ticking boxes for half an hour every evening was not much better than clipping articles by hand.</span></p>
+<p><span class="sent">So I gave the inbox to a model, with a command called <code>garlasco smista</code> (which means &quot;sort&quot; in Italian), and the way the work is split between the model and the code is, I think, the most reusable idea of this part.</span><span class="sent"> The model, Claude Haiku in this case, receives about twenty candidates published around the same dates, together with the wiki sources already published within three days of them and a few of their claims, and for each candidate it gives two judgments and nothing else: a relevance from 0 to 3, from &quot;not about the case&quot; through &quot;commentary without facts&quot; and &quot;facts or statements&quot; to &quot;new documents, wiretaps, expert reports or decisions&quot;, and a novelty, which says whether the candidate brings something new, adds detail to a story the wiki already has, or repeats it.</span><span class="sent"> The decision is not the model&#39;s.</span><span class="sent"> It is made by a few lines of code, which also take into account a tier I assign to each outlet and channel by hand:</span></p>
+<figure class="ide" data-lang="python">
+<div class="ide-head"><span class="dot"></span><span class="file">scripts/crawler/gcrawl/triage.py</span><span class="lang">python</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">def verdict(tier: str, rilevanza: int, novita: str, dubbio: bool = <span class="t-k">False</span>) -&gt; str:</span></div>
+<div class="ln"><span class="num">2</span><span class="src">    <span class="t-s">""</span>"The decision rule (code, not model): <span class="t-s">'approve'</span>, <span class="t-s">'reject'</span> or <span class="t-s">'doubt'</span> (left to the user).</span></div>
+<div class="ln"><span class="num">3</span><span class="src">    A model doubt (title and description too thin to judge) goes the source's way: a preferred source gets the</span></div>
+<div class="ln"><span class="num">4</span><span class="src">    benefit of the doubt when it is about the case, a low one is dropped, only a normal one is left to the user.<span class="t-s">""</span>"</span></div>
+<div class="ln"><span class="num">5</span><span class="src">    if dubbio:</span></div>
+<div class="ln"><span class="num">6</span><span class="src">        if tier == <span class="t-s">"preferred"</span>:</span></div>
+<div class="ln"><span class="num">7</span><span class="src">            return <span class="t-s">"approve"</span> if rilevanza &gt;= <span class="t-n">1</span> else <span class="t-s">"reject"</span></span></div>
+<div class="ln"><span class="num">8</span><span class="src">        return <span class="t-s">"reject"</span> if tier == <span class="t-s">"low"</span> or rilevanza == <span class="t-n">0</span> else <span class="t-s">"doubt"</span></span></div>
+<div class="ln"><span class="num">9</span><span class="src">    if tier == <span class="t-s">"preferred"</span>:</span></div>
+<div class="ln"><span class="num">10</span><span class="src">        ok = rilevanza &gt;= <span class="t-n">2</span> and novita in (<span class="t-s">"nuova"</span>, <span class="t-s">"parziale"</span>)</span></div>
+<div class="ln"><span class="num">11</span><span class="src">    elif tier == <span class="t-s">"low"</span>:</span></div>
+<div class="ln"><span class="num">12</span><span class="src">        ok = rilevanza &gt;= <span class="t-n">3</span> and novita == <span class="t-s">"nuova"</span></span></div>
+<div class="ln"><span class="num">13</span><span class="src">    else:</span></div>
+<div class="ln"><span class="num">14</span><span class="src">        ok = rilevanza &gt;= <span class="t-n">2</span> and novita == <span class="t-s">"nuova"</span></span></div>
+<div class="ln"><span class="num">15</span><span class="src">    return <span class="t-s">"approve"</span> if ok else <span class="t-s">"reject"</span></span></div>
+</div>
+</figure>
+<p><span class="sent">The preferred tier is made of national dailies, news agencies, public broadcasters and the local paper, and also one YouTube channel that follows the hearings closely, while the low tier holds the channels whose videos I had rejected almost every time when I was still doing it myself.</span><span class="sent"> A preferred source is approved when it brings facts that are new or more detailed, a normal one only when they are new, a low one only when it brings new primary material.</span><span class="sent"> Items that are the same story from different outlets are grouped by similar title within a day of each other and judged once, keeping the best version (preferred, free, highest score) and rejecting the others as duplicates.</span><span class="sent"> There is also a cap on how many items are approved per run, so that a flood of news is ingested gradually instead of in one huge batch.</span><span class="sent"> Every decision is written to a log with the model&#39;s reason, and stays visible in the inbox for a week, where I can reverse it by flipping the checkbox.</span></p>
+<p><span class="sent">Since I started using it, the triage has rejected several times more items than it approved, and has left me only a small number of genuine doubts, usually videos with generic titles and empty descriptions.</span><span class="sent"> The proportion is not a measure of quality, though, and I will come back to what this filter might be getting wrong systematically.</span></p>
+<h2>7. Measuring the loop before fixing it</h2>
+<p><span class="sent">By then I had already built the loop that I describe in section 9, a command that decides what the wiki needs and launches the right session without me, and it was running ingest, distill and audit sessions one after the other, first with Claude Code and then mostly with OpenCode.</span><span class="sent"> The switch was a matter of arithmetic: OpenCode Go, a plan that costs ten dollars a month, gave me access to DeepSeek V4.1 Flash, which in my experience had the best ratio between performance and cost of all the models I tried, and on the same budget it let me process a lot more work than my Claude subscription did.</span><span class="sent"> With a backlog of five hundred articles waiting on disk, the obvious next step was to make the ingest cheaper, and I almost did exactly that without looking.</span><span class="sent" data-fns="2"> Then I measured what the loop had actually been spending, using the logs it writes for every session, and the numbers did not say what I expected<sup class="fn-ref"><a href="#fn-2" data-fn="2">2</a></sup>:</span></p>
+<aside class="sidenote" id="fn-2" data-fn="2"><span class="num">2</span>The figures in sections 7 and 11 come from the per-session logs of the loop and of the extraction. Costs on Claude Code are the nominal costs reported by the headless CLI, which are not what a subscription actually bills; OpenCode sessions ran on a flat monthly plan and report no cost, so for them only time and tokens are given. Model time is the duration of each session or call, not wall-clock time, since extraction ran several calls in parallel. Case facts are stated only at the level established by the judgments and by public reporting, as in Parts 1 and 2.</aside>
+<div class="table-wrap"><table>
+<thead><tr><th>First week of the loop</th><th style="text-align:right">Ingest</th><th style="text-align:right">Distill</th><th style="text-align:right">Audit</th></tr></thead>
+<tbody>
+<tr><td>Claude Code, nominal cost</td><td style="text-align:right">$25 (about $3 per batch of 8)</td><td style="text-align:right">$69.5 (about $7 per session)</td><td style="text-align:right">$21.4</td></tr>
+<tr><td>OpenCode, minutes of model time</td><td style="text-align:right">837 in 35 sessions</td><td style="text-align:right">1,251 in 70 sessions</td><td style="text-align:right">238 in 14 sessions</td></tr>
+</tbody>
+</table></div>
+<p><span class="sent">Distill and audit took between sixty and almost eighty percent of the total, depending on how you measure it, because every ingest batch was followed on average by two distill sessions and a fraction of an audit.</span><span class="sent"> And the backlog itself was much smaller than it looked: five hundred articles, but only about 345,000 words in all, a couple of megabytes of text that a model can read in no time.</span><span class="sent"> The expensive part was not reading the articles but the procedure wrapped around them, with each subagent rereading the manual, the workflow, the schema and the registry, and then working in turns with the orchestrator.</span><span class="sent"> Merging articles would not have helped either, since among those five hundred there were only two textual duplicates.</span></p>
+<p><span class="sent">I had also been toying with a different idea, which I think is worth mentioning because it is the kind of idea that seems clever and is not.</span><span class="sent"> Instead of ingesting five hundred articles, why not have a model write one long summary of the period they cover, and ingest that?</span><span class="sent"> The answer came from Part 2: the claims extracted from such a document would be anchored to a text written by a model rather than to the articles themselves, so the quote check would still pass, but it would be verifying that the claim matches the summary, which is precisely the guarantee the whole architecture was built to provide.</span><span class="sent"> The two good halves of that idea, recognizing when different sources report the same fact and giving the distill a compact view of what is new, ended up in the plan at the level where they belong.</span><span class="sent"> The first was measured and abandoned, as I described in Part 2, when it turned out that fewer than three claims in a hundred were truly redundant.</span><span class="sent"> The second became the digest that I will come to in section 10.</span></p>
+<h2>8. One call per article</h2>
+<p><span class="sent">The new extraction, <code>garlasco estrai</code> (&quot;extract&quot;), starts from a simple observation: for an article, the agent loop was doing very little that needed an agent.</span><span class="sent"> A subagent with tools would read the raw file, search the registry for the entities it mentioned, write a claims file and a source page, run the build and check the result, but the only part of that which required a language model was reading the article and deciding what it said.</span><span class="sent"> Everything else could be done by code, and done better.</span></p>
+<p><span class="sent">So the extraction makes a single call to the model for each article, with no tools at all.</span><span class="sent"> The call receives a fixed system prompt with the extraction rules (the same ones the ingest workflow had accumulated, including the lessons on profile articles and on facts buried inside quotes), a list of candidate entities taken from the registry by matching names and aliases against the text, and the article itself.</span><span class="sent"> It must answer with a JSON object that follows a schema: the source&#39;s title, authors and tags, a short summary, a reliability rating with its reasons, notes on possible contradictions, any new entities it wants to create, and the claims.</span><span class="sent"> With Claude Code, the call is a headless invocation with tools disabled and the schema passed on the command line:</span></p>
+<figure class="ide" data-lang="python">
+<div class="ide-head"><span class="dot"></span><span class="file">scripts/crawler/gcrawl/llm.py</span><span class="lang">python</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">cmd = [exe, <span class="t-s">"-p"</span>, user, <span class="t-s">"--system-prompt"</span>, system, <span class="t-s">"--tools"</span>, <span class="t-s">""</span>, <span class="t-s">"--safe-mode"</span>, <span class="t-s">"--no-session-persistence"</span>,</span></div>
+<div class="ln"><span class="num">2</span><span class="src">       <span class="t-s">"--output-format"</span>, <span class="t-s">"json"</span>, <span class="t-s">"--model"</span>, model or CLAUDE_MODEL]</span></div>
+<div class="ln"><span class="num">3</span><span class="src">if effort:                                  <span class="t-c"># thinking budget: the main driver of cost per source</span></span></div>
+<div class="ln"><span class="num">4</span><span class="src">    cmd += [<span class="t-s">"--effort"</span>, effort]</span></div>
+<div class="ln"><span class="num">5</span><span class="src">if schema:</span></div>
+<div class="ln"><span class="num">6</span><span class="src">    cmd += [<span class="t-s">"--json-schema"</span>, json.dumps(schema, ensure_ascii=<span class="t-k">False</span>)]</span></div>
+</div>
+</figure>
+<p><span class="sent">The part I care about the most is what happens to the answer.</span><span class="sent"> Before anything is written, every claim goes through the same rules the verifier applies at commit time, and to make sure they really are the same rules, and not a copy that would slowly drift away from the original, the extraction loads the verifier script itself as a module and uses its functions and its lists of allowed values:</span></p>
+<figure class="ide" data-lang="python">
+<div class="ide-head"><span class="dot"></span><span class="file">scripts/crawler/gcrawl/pipeline.py</span><span class="lang">python</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">def rules():</span></div>
+<div class="ln"><span class="num">2</span><span class="src">    <span class="t-s">""</span><span class="t-s">"scripts/verify-ingest.py as a module: normalize_for_quote, the enums and the regexes it enforces."</span><span class="t-s">""</span></span></div>
+<div class="ln"><span class="num">3</span><span class="src">    global _RULES</span></div>
+<div class="ln"><span class="num">4</span><span class="src">    with _RULES_LOCK:</span></div>
+<div class="ln"><span class="num">5</span><span class="src">        if _RULES is <span class="t-k">None</span>:</span></div>
+<div class="ln"><span class="num">6</span><span class="src">            script = CRAWLER_CODE_DIR.parent / <span class="t-s">"verify-ingest.py"</span></span></div>
+<div class="ln"><span class="num">7</span><span class="src">            spec = importlib.util.spec_from_file_location(<span class="t-s">"verify_ingest_rules"</span>, script)</span></div>
+<div class="ln"><span class="num">8</span><span class="src">            mod = importlib.util.module_from_spec(spec)</span></div>
+<div class="ln"><span class="num">9</span><span class="src">            …</span></div>
+<div class="ln"><span class="num">10</span><span class="src">            spec.loader.exec_module(mod)</span></div>
+<div class="ln"><span class="num">11</span><span class="src">            …</span></div>
+<div class="ln"><span class="num">12</span><span class="src">            _RULES = mod</span></div>
+<div class="ln"><span class="num">13</span><span class="src">    return _RULES</span></div>
+</div>
+</figure>
+<p><span class="sent">The quote must be found in the article after the usual normalization, the type and the confidence must come from their lists, the date must have a sortable format, every subject must exist in the registry (or be a new entity that passes a guard against near-identical names), and a timeline entry must have a title and a date.</span><span class="sent"> The extraction is actually stricter than the verifier in one respect, since it requires a quote for every claim, background and hypotheses included, after a trial showed that recaps without quotes were impossible to compare.</span><span class="sent"> Claims that fail go back to the model, together with the list of what is wrong with each of them, for at most two rounds of corrections, and whatever is still wrong after that is dropped and recorded in a log, never written.</span><span class="sent"> A source whose share of dropped claims is too high, or whose answer cannot be read, is left for the old agent path, and the files themselves (the claims YAML, the source page, the stubs for new entities) are written by code from the templates, so the source page and its claims cannot disagree.</span></p>
+<p><span class="sent">Every twenty-four articles, the extraction runs the build, writes one log entry for the batch and commits it through the same pre-commit hook as everything else, so from the point of view of the verifier nothing has changed: the commit is accepted or rejected for the same reasons as before.</span></p>
+<p><span class="sent">Before running it on the backlog, I wanted to know whether a single call could do as well as a session of agents, so I ran it on twenty articles that had already been ingested, chosen to include short and long pieces, profiles and recaps, and compared the new claims with the committed ones.</span><span class="sent"> The comparison measures coverage, that is, the share of committed claims whose quote is covered by a new claim, which is a comparison with the previous extraction and not with any absolute truth, and part of those twenty articles had been ingested by one of these same models in the first place:</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Engine</th><th style="text-align:right">Coverage (median)</th><th style="text-align:right">Valid on first pass</th><th style="text-align:right">Dropped</th><th style="text-align:right">Cost per source</th><th style="text-align:right">Model seconds per source</th></tr></thead>
+<tbody>
+<tr><td>DeepSeek V4.1 Flash on OpenCode, high effort</td><td style="text-align:right">100%</td><td style="text-align:right">321 of 331</td><td style="text-align:right">1</td><td style="text-align:right">$10 a month, flat</td><td style="text-align:right">113</td></tr>
+<tr><td>Claude Haiku, high effort</td><td style="text-align:right">83%</td><td style="text-align:right">377 of 396</td><td style="text-align:right">1</td><td style="text-align:right">$0.013</td><td style="text-align:right">76</td></tr>
+<tr><td>Claude Sonnet, medium effort</td><td style="text-align:right">74%</td><td style="text-align:right">225 of 226</td><td style="text-align:right">0</td><td style="text-align:right">$0.082</td><td style="text-align:right">21</td></tr>
+</tbody>
+</table></div>
+<p><span class="sent">The detail that surprised me was that the reasoning effort mattered more than the model.</span><span class="sent"> Sonnet left on my default effort produced almost as much as the others, but at more than a dozen times the cost of Haiku, and two thirds of its tokens were reasoning.</span><span class="sent"> With low or medium effort, it extracted half as many claims.</span><span class="sent"> None of the engines put a number in the text of a claim that was not in the article, which was the failure I had feared the most.</span></p>
+<p><span class="sent">Two more lessons came out of the trial, and both are typical of what happens when you move from an agent to a single call.</span><span class="sent"> The first was that the longest answers, the ones with thirty claims or so, sometimes arrived truncated, and the tolerant JSON reader I had written found the first complete object inside them, which was a single claim, and reported that the article had produced nothing valid.</span><span class="sent"> Now an answer counts only if it is an object with the top-level <code>claims</code> key (or a <code>skip</code>), and otherwise the call is repeated once before the source is handed back to the agents.</span><span class="sent"> The second was that the estimate on which the whole plan rested was wrong by a factor of two.</span><span class="sent"> I had assumed about ten claims per article, based on the short pieces of the local paper, while a real batch of eight long magazine articles produced about twenty each, and since the cost of distill grows with the number of claims, the number of distill sessions needed for the backlog went from about twenty to about seventy.</span></p>
+<p><span class="sent">The backlog itself took about fifteen hours of model time in a single unattended run, with DeepSeek on OpenCode making four calls in parallel.</span><span class="sent"> Of the 512 articles waiting, 499 were extracted, producing 9,118 claims (a median of seventeen per article), eleven were excluded as empty, duplicated or off topic, two were left to the agents, and sixteen claims in total were dropped, which is about two in a thousand.</span><span class="sent"> The verifier and the build check passed on every batch.</span></p>
+<p><span class="sent">What the verifier could not check showed up in the entities.</span><span class="sent"> The extraction created about a hundred new person stubs, and twelve of them turned out to be duplicates of people already in the wiki, mostly the same surname spelled in different ways by different newspapers (the three spellings of the same consultant&#39;s name I mentioned in Part 2 come from here).</span><span class="sent"> The guard at that point only refused a new person when someone with the same surname already existed, so a misspelled surname went straight through.</span><span class="sent"> It now also refuses a slug that is one edit away from an existing one, or with the same first name and a surname two edits away, and when it does so, it tells the model which existing slug it probably meant.</span></p>
+<h2>9. The loop</h2>
+<p><span class="sent">The loop is the piece that ties everything together, and it has two commands.</span><span class="sent"> <code>garlasco prossimo</code> (&quot;next&quot;) looks at the state of the vault and says what the wiki needs now and why, with the numbers behind the decision, and <code>garlasco auto</code> asks it again and again and launches the corresponding session, headless, one after the other, until there is nothing left to do or something goes wrong.</span><span class="sent"> The decision is a plain function, and I think it is readable even without knowing the details:</span></p>
+<figure class="ide" data-lang="python">
+<div class="ide-head"><span class="dot"></span><span class="file">scripts/crawler/gcrawl/autopilot.py</span><span class="lang">python</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">def decide(s: Stats, cfg: dict | <span class="t-k">None</span> = <span class="t-k">None</span>) -&gt; Decision:</span></div>
+<div class="ln"><span class="num">2</span><span class="src">    cfg = cfg or DEFAULTS</span></div>
+<div class="ln"><span class="num">3</span><span class="src">    if not s.build_ok:</span></div>
+<div class="ln"><span class="num">4</span><span class="src">        return Decision(<span class="t-s">"stop"</span>, <span class="t-s">"build.py --check non è pulito: …"</span>)</span></div>
+<div class="ln"><span class="num">5</span><span class="src">    if s.in_progress:</span></div>
+<div class="ln"><span class="num">6</span><span class="src">        return Decision(<span class="t-s">"ingest"</span>, f<span class="t-s">"{s.in_progress} file con ingest rimasto a metà: si completano per primi"</span>)</span></div>
+<div class="ln"><span class="num">7</span><span class="src">    if s.dirty:</span></div>
+<div class="ln"><span class="num">8</span><span class="src">        return Decision(<span class="t-s">"stop"</span>, f<span class="t-s">"modifiche non committate nella wiki ({shown}): controlla git status"</span>)</span></div>
+<div class="ln"><span class="num">9</span><span class="src">    if s.articles and cfg.get(<span class="t-s">"estrai"</span>, <span class="t-k">True</span>):</span></div>
+<div class="ln"><span class="num">10</span><span class="src">        return Decision(<span class="t-s">"estrai"</span>, f<span class="t-s">"{s.articles} articoli in attesa: …"</span>)</span></div>
+<div class="ln"><span class="num">11</span><span class="src">    total = sum(n for _, n in s.undistilled)</span></div>
+<div class="ln"><span class="num">12</span><span class="src">    if s.undistilled and total &gt;= cfg[<span class="t-s">"distill_threshold"</span>]:</span></div>
+<div class="ln"><span class="num">13</span><span class="src">        return Decision(<span class="t-s">"distill"</span>, f<span class="t-s">"{total} claims non distillati (soglia {cfg['distill_threshold']})"</span>, …)</span></div>
+<div class="ln"><span class="num">14</span><span class="src">    due = _audit_due(s, cfg)</span></div>
+<div class="ln"><span class="num">15</span><span class="src">    if due:</span></div>
+<div class="ln"><span class="num">16</span><span class="src">        return Decision(<span class="t-s">"audit"</span>, due)</span></div>
+<div class="ln"><span class="num">17</span><span class="src">    …</span></div>
+<div class="ln"><span class="num">18</span><span class="src">    if s.pending:</span></div>
+<div class="ln"><span class="num">19</span><span class="src">        return Decision(<span class="t-s">"ingest"</span>, f<span class="t-s">"{s.pending} file in attesa di ingest (convertiti o arretrato di raw/articles)"</span>)</span></div>
+<div class="ln"><span class="num">20</span><span class="src">    …</span></div>
+<div class="ln"><span class="num">21</span><span class="src">    return Decision(<span class="t-s">"idle"</span>, <span class="t-s">"niente da fare: …"</span>)</span></div>
+</div>
+</figure>
+<p><span class="sent">The order says a lot about what I had learned by then.</span><span class="sent"> A build that is not clean, or uncommitted changes in the wiki, stop everything, because they mean that something happened that nobody can explain, and the loop should not build on top of it.</span><span class="sent"> An ingest left halfway is completed before anything else.</span><span class="sent"> Articles waiting go to the single-call extraction before any distill, so that a backlog is extracted completely and then distilled in chronological order, instead of being distilled one fragment at a time.</span><span class="sent"> A distill starts when at least fifty new claims (not counting background) are waiting, an audit after four distill sessions or a month without one, and the agent sessions for videos, documents and anything the extraction gave up on come after that.</span><span class="sent"> Each kind of session has its own model, the cheapest one that does the job, with Haiku for extraction, Sonnet for the agent ingest and Opus for distill and audit when running on Claude, and DeepSeek V4.1 Flash for everything when running on OpenCode, at high effort for ingest, extraction and backfill and at maximum effort for distill and audit, where the judgment happens.</span></p>
+<figure class="diagram"><pre class="mermaid">flowchart TD
+    S["garlasco prossimo&lt;br/&gt;reads the vault"] --&gt; B{"build clean and&lt;br/&gt;nothing uncommitted?"}
+    B -- no --&gt; STOP["stop and notify"]
+    B -- yes --&gt; A1{"articles&lt;br/&gt;waiting?"}
+    A1 -- yes --&gt; E["estrai"]
+    A1 -- no --&gt; A2{"≥ 50 claims&lt;br/&gt;not distilled?"}
+    A2 -- yes --&gt; DI["distill"]
+    A2 -- no --&gt; A3{"audit due?"}
+    A3 -- yes --&gt; AU["audit"]
+    A3 -- no --&gt; IN["agent ingest"]
+    E --&gt; CK{"right commit,&lt;br/&gt;clean wiki?"}
+    DI --&gt; CK
+    AU --&gt; CK
+    IN --&gt; CK
+    CK -- yes --&gt; S
+    CK -- no --&gt; STOP</pre></figure>
+<p><span class="sent">After every session, the loop checks that the session left exactly what it was supposed to leave, a commit with the right prefix and a clean working tree, and if something is missing it reminds the session once and then stops with a notification.</span><span class="sent"> A session that needs a human decision (whether two people with similar names are the same person, say) ends with a line starting with <code>SERVE_DECISIONE</code> (&quot;decision needed&quot;), which makes the loop play a sound, show the question in the terminal and wait for my answer.</span><span class="sent"> When the usage limits of the Claude subscription run out, the loop waits for the reset and resumes the same session, committing the articles already extracted first, so that nothing is lost.</span></p>
+<p><span class="sent">Most of the hard work of the loop was not in the decision, though, but in the many ways an unattended session can fail, and almost all of them were discovered by letting it run overnight and reading the logs in the morning.</span><span class="sent"> Two of them are worth telling, because they are the kind of failure no design document predicts.</span><span class="sent"> The first time I ran an ingest batch on OpenCode, one of the subagents decided to search the web, and OpenCode&#39;s web search tool opened an interactive form asking which search provider to use.</span><span class="sent"> In a headless run nobody can answer a form, and the command-line tool treated the cancelled form as a failure of the entire call, killing the orchestrator and every subagent with it: two sources were complete, one had its files written but not committed, one had never started.</span><span class="sent"> The loop reminded the session to finish, the session (resumed without its subagents) answered that it would not commit in the middle of a batch and was waiting for the two remaining ones, and the loop stopped.</span><span class="sent"> I completed the batch by hand, web search was removed from the agents&#39; permissions, and the loop learned to recognize that kind of interruption and to tell the resumed session that its subagents no longer exist.</span></p>
+<p><span class="sent">The second was a single night in which the provider kept answering that its inference service was overloaded.</span><span class="sent"> OpenCode retries that error on its own after thirty seconds, and in the end every request would have gone through, but my wrapper treated it as fatal and killed four sessions in a row, while the startup check, which sent a tiny request and waited for a fixed three minutes, timed out and reported that OpenCode could not be started at all, as if the installation were broken.</span><span class="sent"> Nothing was broken, and reproducing the command by hand gave an answer in about half a minute.</span><span class="sent"> Now that error is treated as transient, the wrapper lets the provider retry for a few minutes inside the same call, and the startup check follows the stream of events as they arrive and says, when that is the case, that the provider is overloaded and to try again later.</span><span class="sent"> Each of these stories ended up in the bug history of the vault, with the rule it produced, which by now is perhaps the most useful document in the repository.</span></p>
+<p><span class="sent">This is what the loop looks like when it works, from the last night it ran, shortly before the monthly limit of my OpenCode plan was reached and the loop, as designed, stopped instead of retrying:</span></p>
+<figure class="ide" data-lang="text">
+<div class="ide-head"><span class="dot"></span><span class="file">crawler/logs/auto-2026-11.log</span><span class="lang">text</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">INFO auto giro <span class="t-n">51</span>: estrai — <span class="t-n">9</span> articoli in attesa: estrazione a chiamata singola, prima di distill e audit</span></div>
+<div class="ln"><span class="num">2</span><span class="src">INFO auto estrai: estratti <span class="t-n">9</span>, esclusi <span class="t-n">0</span>, lasciati agli agenti <span class="t-n">0</span>, errori <span class="t-n">0</span>, commit 647427b8, stop <span class="t-s">''</span></span></div>
+<div class="ln"><span class="num">3</span><span class="src">INFO auto giro <span class="t-n">52</span>: distill — <span class="t-n">171</span> claims non distillati (soglia <span class="t-n">50</span>)</span></div>
+<div class="ln"><span class="num">4</span><span class="src">INFO auto distill: opencode start sessione ses_38c2… (opencode-go/deepseek-v4.<span class="t-n">1</span>-flash<span class="t-c">#max)</span></span></div>
+<div class="ln"><span class="num">5</span><span class="src">INFO auto distill: fine chiamata rc=<span class="t-n">0</span> errore=<span class="t-k">False</span> durata=<span class="t-n">15.0</span> min costo nominale=<span class="t-n">0.0</span></span></div>
+<div class="ln"><span class="num">6</span><span class="src">INFO auto giro <span class="t-n">53</span>: distill — <span class="t-n">50</span> claims non distillati (soglia <span class="t-n">50</span>)</span></div>
+<div class="ln"><span class="num">7</span><span class="src">INFO auto distill: opencode start sessione ses_e95a… (opencode-go/deepseek-v4.<span class="t-n">1</span>-flash<span class="t-c">#max)</span></span></div>
+<div class="ln"><span class="num">8</span><span class="src">INFO auto distill: fine chiamata rc=<span class="t-n">1</span> errore=<span class="t-k">True</span> durata=<span class="t-n">9.0</span> min costo nominale=<span class="t-n">0.0</span></span></div>
+<div class="ln"><span class="num">9</span><span class="src">WARNING Sessione distill non conclusa: credito del piano OpenCode Go esaurito (…). Mi fermo, nessun tentativo automatico.</span></div>
+</div>
+</figure>
+<h2>10. Distill becomes the bottleneck</h2>
+<p><span class="sent">With extraction cheap and sourcing automated, the only expensive operation left was the one that cannot be checked by code, the distill session that reads the new claims and rewrites the curated prose, and that is where most of the remaining effort went.</span></p>
+<p><span class="sent">The first change was to stop having the distill session discover its own input.</span><span class="sent"> It now starts from a digest that the code generates for it, with the new claims of its slice grouped by entity, one line per claim with its address, background claims left out, plus the notes left by the extraction and a limited number of candidate conflicts.</span><span class="sent"> I had initially included all the conflict groups touching the slice, and the digest came out at well over a megabyte, almost all of it conflicts, because seventeen claims per article on the same subjects and dates produce a large number of groups that are not conflicts at all, so now only the thirty smallest groups are included.</span></p>
+<p><span class="sent">The second change was the size of the slice, and here a measurement saved me from a mistake.</span><span class="sent"> To finish the distill of the backlog faster, I tried a session with 250 new claims instead of the usual sixty or so, and measured the result in a way I could apply to the previous sessions as well, that is, the share of the twelve entities with the most new claims whose curated part had actually been revised.</span><span class="sent"> The previous sessions averaged two thirds, the large one reached about forty percent, and the page of the man at the centre of the new investigation, with seventy new claims of his own, was not touched at all.</span><span class="sent"> The slice went back to its previous size.</span></p>
+<p><span class="sent">That session, though, also showed something else.</span><span class="sent"> Like the sessions before it, it appended much more than it rewrote, and every page it touched grew, although the first rule of distill is to rewrite rather than append.</span><span class="sent"> When I looked at the sizes, the reason seemed obvious: the curated part of some pages was in the hundreds of kilobytes (the case overview was about 90,000 tokens, and every agent session read it in full at the start), and a session cannot rewrite a page it cannot hold.</span><span class="sent"> Part of it was not even the distill&#39;s fault, since the largest section of one person&#39;s page, more than two hundred kilobytes, was a leftover of the cutover described in Part 2 that nobody had touched since.</span></p>
+<p><span class="sent">So I wrote a command to shrink a single section of a page, <code>garlasco condensa</code> (&quot;condense&quot;), and it is built on the same principle as the extraction, a model call with no tools surrounded by code that does not trust it.</span><span class="sent"> The section is split into its entries and grouped into chunks of about twenty-eight kilobytes, and each chunk goes to the model with a target size.</span><span class="sent"> The model may only remove, and the code checks its answer against the original and rejects it when it contains a number, a link, a capitalised name or one of the wiki&#39;s labels that was not in the text it received:</span></p>
+<figure class="ide" data-lang="python">
+<div class="ide-head"><span class="dot"></span><span class="file">scripts/crawler/gcrawl/condense.py</span><span class="lang">python</span></div>
+<div class="ide-body">
+<div class="ln"><span class="num">1</span><span class="src">old, new = _plain(original), _plain(condensed)</span></div>
+<div class="ln"><span class="num">2</span><span class="src">seen_tokens, allowed = set(NUM_RE.findall(old)), _allowed_numbers(old)</span></div>
+<div class="ln"><span class="num">3</span><span class="src">nums = sorted({n for n in NUM_RE.findall(new) if n not in seen_tokens</span></div>
+<div class="ln"><span class="num">4</span><span class="src">               and not all(int(p) in allowed for p in re.findall(r<span class="t-s">"\d+"</span>, n))})</span></div>
+<div class="ln"><span class="num">5</span><span class="src">if nums:</span></div>
+<div class="ln"><span class="num">6</span><span class="src">    out.append(<span class="t-s">"numeri o date che non sono nel testo originale: "</span> + <span class="t-s">", "</span>.join(nums[:<span class="t-n">12</span>]))</span></div>
+<div class="ln"><span class="num">7</span><span class="src">links = sorted({m.group(<span class="t-n">1</span>) for m in LINK_RE.finditer(condensed)} - {m.group(<span class="t-n">1</span>) for m in LINK_RE.finditer(original)})</span></div>
+<div class="ln"><span class="num">8</span><span class="src">if links:</span></div>
+<div class="ln"><span class="num">9</span><span class="src">    out.append(<span class="t-s">"link che non sono nel testo originale: "</span> + <span class="t-s">", "</span>.join(links[:<span class="t-n">8</span>]))</span></div>
+</div>
+</figure>
+<p><span class="sent">A rejected chunk is retried once and then left as it was, and the full original text of the section is saved, identical, in an archive outside the published wiki, with a line on the page pointing to it.</span><span class="sent"> The checks did catch the model adding things: in one of the hypothesis pages it had added links to three sources that were not in the text, and in the page of the man convicted in 2015 it had added a link to the victim&#39;s mother&#39;s page in two chunks.</span><span class="sent"> But the first real run also left two chunks out of nine untouched because of three mistakes of mine in the checks (numeric dates and ranges read as new numbers, a lower-case label, a faithful answer thrown away for being too long), which were fixed, with tests, before running it again.</span></p>
+<p><span class="sent">Applied to nine sections of the largest pages, it brought them from about 710 kilobytes to about 260, and the largest section of all went from more than two hundred kilobytes to about sixty-five.</span><span class="sent"> I read a sample of the results against the originals, and dates, attributions, conditionals and notes on discrepancies between sources were all kept, while minor details and the links to the sources of many entries were lost (they remain in the claims and in the generated chronology).</span><span class="sent"> At the same time, the session start of the operating manual was changed so that the overview is no longer read in full but only its summary, with the other sections opened when needed.</span><span class="sent"> A distill session run afterwards revised eight of its twelve main entities, which is back to the earlier average, and on the large pages it removed about as many lines as it added, which no session had done in a long time.</span><span class="sent"> That is a single session, with three changes made at once, so I cannot say which of them mattered, but it was the first sign that the pages had stopped growing on their own.</span></p>
+<h2>11. What it cost</h2>
+<p><span class="sent" data-fns="2">Here is the whole loop, from the day it first ran to the night it stopped, counted from the logs it writes for every session<sup class="fn-ref"><a href="#fn-2" data-fn="2">2</a></sup>:</span></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Session</th><th style="text-align:right">Sessions</th><th style="text-align:right">Model time</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Distill</td><td style="text-align:right">194</td><td style="text-align:right">about 73 hours</td><td>almost all on OpenCode, about 68 million input tokens</td></tr>
+<tr><td>Agent ingest</td><td style="text-align:right">62</td><td style="text-align:right">about 19 hours</td><td>videos, documents and sources the extraction gave up on</td></tr>
+<tr><td>Audit</td><td style="text-align:right">29</td><td style="text-align:right">about 8 hours</td><td>one every four distills</td></tr>
+<tr><td>Backfill and legacy</td><td style="text-align:right">12</td><td style="text-align:right">about 1.5 hours</td><td>the tail of the work described in Part 2</td></tr>
+<tr><td>Single-call extraction</td><td style="text-align:right">about 700 articles</td><td style="text-align:right">about 20 hours</td><td>about 18 claims, 18,000 input tokens and 100 seconds per article</td></tr>
+</tbody>
+</table></div>
+<p><span class="sent">On Claude Code, where the headless output reports a nominal cost for each session, the loop spent about $120 in its first couple of days, and three quarters of it went on distill and audit.</span><span class="sent"> On OpenCode, the ten-dollar Go plan reports no cost per session, so the bulk of the work in the table above, almost all the distill and most of the extraction, fit into a single month of that plan and ended when its monthly limit was reached.</span><span class="sent"> All of this was paid through subscriptions I already had, so the nominal cost is not what I paid, but it is a fair way to compare the operations with each other, and the comparison says the same thing every time: reading and extracting sources is cheap, while the judgment over what they mean, the part that keeps the curated pages honest, is where the money goes.</span></p>
+<p><span class="sent">Two numbers summarize the change for me.</span><span class="sent"> An article that used to go through a subagent session now costs about one hundredth of a dollar with Haiku, a few seconds of my attention when I glance at the inbox and nothing at all when the triage handles it, and the wiki has grown from about eight hundred source pages at the end of the backfill to more than seventeen hundred, most of them added while I was doing something else.</span></p>
+<h2>12. The good and the bad</h2>
+<p><span class="sent">What I am fairly sure works is the backbone, which by now has been tested in conditions I did not plan for.</span><span class="sent"> Raw files that are never modified, claims anchored to verbatim quotes and checked by code, views generated from the claims and never edited by hand, and a verifier that runs on every commit and again on the server, have survived several months of models of different sizes and providers writing into the vault, sometimes for nights in a row with nobody watching, and the build check never let the published views drift away from the claims.</span><span class="sent"> The idea of letting the model judge and the code decide (in the triage, in the extraction, in the condensing) seems to me the one most worth reusing elsewhere, together with the habit of measuring before building, which saved me from at least two pieces of machinery that would have cost a lot and helped little.</span><span class="sent"> But I promised to list everything I think is wrong with the project, and the list is longer.</span></p>
+<p><span class="sent">The first problem is the one I already raised in Part 2, and it has not gone away.</span><span class="sent"> A verbatim quote proves that the words exist in the source, not that they support the claim built on them, and the only defence against a claim that says more than its quote is an audit that reads a sample of claims against their raw files.</span><span class="sent"> With almost twenty-seven thousand claims, most of them written by small models in single calls, a sample is a small fraction of the whole, and I do not know how many claims overstate their quote, because I have never measured it properly.</span></p>
+<p><span class="sent">The second is the corpus itself.</span><span class="sent"> The wiki is built mostly from the press and from YouTube, so statements outnumber facts, and what the wiki knows is to a large extent what journalists, lawyers and commentators chose to say in public, in the order and with the emphasis they chose.</span><span class="sent"> The automation makes this worse in ways that are easy to miss, since several of its mechanisms reinforce whatever the wiki already contains: the crawler&#39;s queries are enriched with the names that are most present in recent sources, the triage judges novelty against what the wiki already has, and the tiers I assigned by hand favour the large outlets, so the material that keeps coming in is the material that looks like what came before.</span><span class="sent"> A document that nobody wrote about, or a minor channel that got something right before the others, has a harder time getting in.</span></p>
+<p><span class="sent">Then there are transcripts.</span><span class="sent"> Almost four hundred sources are automatic YouTube subtitles, which are not verbatim, misspell names and sometimes invert the meaning of a sentence, and the quote check that is so convincing for a newspaper article is much weaker when the text it checks against is itself a machine&#39;s guess at what was said.</span><span class="sent"> The instruction to use a cautious confidence is a rule written in prose, the kind of rule Part 1 taught me not to rely on.</span></p>
+<p><span class="sent">The curated prose is still unverifiable.</span><span class="sent"> Everything a distill session writes (the profile of a person, the state of a hypothesis, the summary of the case) goes into the wiki on the strength of the model&#39;s judgment alone, and the pages kept growing for months despite a rule telling the sessions to rewrite rather than append, which shows how much a rule in prose is worth when nothing enforces it.</span><span class="sent"> The condensing brought the hand-written part back to a manageable size, but it did so by deleting minor details and many links to sources from the curated text, and the checks that protect it cannot see an addition written in lower case or a sentence that changes meaning while keeping the same words.</span></p>
+<p><span class="sent">Contradictions, which the idea file put at the centre of everything, are now the weakest part of the system.</span><span class="sent"> The report of candidate conflicts has grown to several megabytes and well over a thousand groups, most of them false, and no session opens it whole.</span><span class="sent"> The contradiction pages that exist were written by distill and audit sessions noticing a disagreement, so the wiki preserves the contradictions that a model happened to notice, which is not the same as preserving the contradictions in the record.</span></p>
+<p><span class="sent">Entities are still a weak spot.</span><span class="sent"> Guards against near-identical names catch most duplicates now, but not all of them, and they also risk the opposite mistake of refusing two different people with almost the same name.</span><span class="sent"> There are a few unresolved questions of identity, and a few dozen stubs for marginal people (politicians, commentators, victims of other cases) that probably should not be in the wiki at all.</span></p>
+<p><span class="sent">Many of the decisions described in this part rest on thin evidence.</span><span class="sent"> Coverage was measured against the previous extraction, not against a set of claims checked by hand, the trial of the engines used twenty articles, the slice size was decided on one session and the benefit of condensing on another, and I said so each time, but a series of reasonable decisions taken on small samples is still a series of guesses.</span></p>
+<p><span class="sent">There is the cost, and the dependence that comes with it.</span><span class="sent"> The loop ran on two consumer subscriptions, stopped every time one of them ran out, and had to be taught the particular failure modes of each provider, from interactive forms to overload errors.</span><span class="sent"> Distill alone took more than seventy hours of model time, and none of the prices or limits it depends on are under my control.</span></p>
+<p><span class="sent">There is complexity.</span><span class="sent"> The crawler&#39;s command-line tool has about thirty commands, the operating manual and the workflows have grown long enough that the session start had to be rationed, and the bug history is a long list of failures that each required a new rule or a new check.</span><span class="sent"> I would argue that the project is no longer quite an LLM wiki in Karpathy&#39;s sense, where a model maintains a set of pages, but a data pipeline with a few carefully fenced model calls in it, and whether that is a betrayal of the pattern or its natural evolution probably depends on how large your corpus is.</span></p>
+<p><span class="sent">Then there are the pages themselves, which are still incredibly long.</span><span class="sent"> The condensing only touched the part written by hand, while the bulk of a page like <a href="https://msmcntmr.github.io/garlasco-llm-wiki/wiki/people/alberto-stasi">Alberto Stasi&#39;s</a> is the chronology the build generates from the claims, every claim about him in date order, and today that page is about two and a half megabytes, nine tenths of it generated.</span><span class="sent"> Nobody reads a page like that from top to bottom, neither a person nor a model, and it will only get longer, since every new source adds its claims to it and nothing ever takes them away.</span><span class="sent"> This was, in a sense, deliberate: at some point the wiki started collecting everything, whether or not it mattered to the case, and in particular who said what and when, so that anyone who spoke publicly about the case could be held to what they said.</span></p>
+<p><span class="sent">And that leads to the question of purpose, which I find the most uncomfortable one.</span><span class="sent"> Keeping everyone accountable is a perfectly legitimate goal, but it is not the goal the project started with.</span><span class="sent"> In Part 1 I described what I wanted: a tool that would collect what is valuable for solving the case, answer complex questions in seconds, propose hypotheses, even estimate how likely each person was to be guilty, the kind of software an investigator could use with the help of a model.</span><span class="sent"> Somewhere along the way the project drifted from that into a general wiki on the case, an archive of everything that has been written and said about it, and the drift happened without my ever deciding it, one reasonable rule at a time.</span><span class="sent"> Almost all of the work since then has gone into ingest, extraction, verification and automation, I have run very few queries, and the wiki has filed exactly one report.</span><span class="sent"> I built an excellent machine for accumulating a case file, and I have barely used it for what a case file is for.</span></p>
+<p><span class="sent">And finally there is the ethical side, which a project like this one should never treat as a footnote.</span><span class="sent"> The wiki is about real people, some of whom are under investigation in a case that is still open, with a preliminary hearing ahead of it, and it is public.</span><span class="sent"> It keeps full texts of articles in a private archive, publishes their summaries and short quotes, and gives the same structural weight to a ruling of the Supreme Court and to a claim made by a commentator on a live stream, distinguished only by a confidence field that a reader may or may not look at.</span><span class="sent"> The labels and the conservative language help, and I have tried to be careful, but there is only one human in the loop, and with seventeen hundred sources even that human reads only a fraction of what the models write.</span></p>
+<h2>13. What I would do differently</h2>
+<p><span class="sent">If I started over today, the first thing I would keep is the order from Part 1, the idea file first and the implementation afterwards, but I would put a lot more into the idea file, starting with the architecture that it took me two rewrites to reach.</span><span class="sent"> I would have a claims ledger from the very first source, with every redundant view generated from it, and the schema enforced by code from the first commit instead of after four hundred pages.</span><span class="sent"> Most of the cleanup scripts in the repository, and most of the months spent on the backfill, exist because I let the model write the data in prose first and tried to impose structure afterwards.</span></p>
+<p><span class="sent">I would build the crawler much earlier, because sourcing turned out to be the real limit of the project long before the model was, and I would rank primary documents above the press from the start, both in the crawler and in the triage, so that the wiki would lean towards what the record says rather than towards what is said about it.</span></p>
+<p><span class="sent">I would build a small set of claims checked by hand, a few hundred of them taken from different kinds of sources, before choosing any model or any prompt, and measure every change against it, instead of comparing each new extraction with the previous one.</span><span class="sent"> It would have answered the question of how many claims overstate their quote, and it would have made every decision in this part rest on something firmer than twenty articles.</span></p>
+<p><span class="sent">I would set size limits on the curated pages from the beginning, along with a check that blocks a commit making an oversized page grow, rather than discovering after months that some pages had become too large to rewrite.</span></p>
+<p><span class="sent">I would measure the cost of the agent loop before scaling it, which is what I eventually did, but only after it had been running for a while, and I would keep the agents for the work that really needs them, giving the narrow and checkable tasks to single tool-less calls from the start.</span></p>
+<p><span class="sent">And I would decide much earlier what the wiki is for, in the sense of the concrete questions it must be able to answer, and build towards queries and reports as early as towards ingest.</span><span class="sent"> A case file that only grows is an archive, and the point of all this structure was to be able to ask it something.</span></p>
+<p><span class="sent">If I am honest, I think that what I have built is two projects that were never separated.</span><span class="sent"> One is a general wiki on the case, whose job is to collect everything and keep it accountable, and that is what the current software does reasonably well.</span><span class="sent"> The other is a tool for investigation, which should start from a completely different question, namely what an investigator actually needs to focus on, and would probably be organized around the open questions of the case (the time of death, the bicycle, the DNA under the fingernails) and the evidence for and against each answer, rather than around people and the chronology of everything said about them.</span><span class="sent"> I do not know yet what that second project looks like, and I suspect it would have to be designed from the ground up, as a separate piece of software, although I would argue that it does not need to start from nothing: the raw archive, the crawler and the quote-anchored claims are exactly the foundation it would need, and the part to redesign is everything built on top of them, from what gets rendered to what counts as relevant.</span><span class="sent"> Bear in mind, too, that investigators work on the case file, while this corpus is mostly what the press and the parties chose to make public, so whatever that tool becomes, it will be limited by its sources long before it is limited by its design.</span></p>
+<p><span class="sent">That said, I do not regret the order in which things happened, because most of what I know about this kind of system I learned from the failures described in these three parts, and I doubt I would have designed the second version properly without having seen the first one break.</span><span class="sent"> The wiki is still running and still growing, now mostly on its own, and you can find it <a href="https://msmcntmr.github.io/garlasco-llm-wiki/">here</a>.</span></p>
+      </article>
+      <nav class="pager" id="pager"><span class="prev empty"></span><a class="next" href="/a/from-prose-to-claims-rebuilding-the-garlasco-llm-wiki/"><span class="label">Older →</span><span>From Prose to Claims: Rebuilding the Garlasco LLM Wiki</span></a></nav>
+    </div>
+  </section>
+
+  <!-- ====================== RIGHT ====================== -->
+  <aside class="pane right">
+    <canvas class="backdrop rain" aria-hidden="true"></canvas>
+    <div class="top">
+      <a href="/" class="mark" data-mark aria-label="vuotogeometrico"></a>
+      <div class="who">
+        <div class="name">vuotogeometrico</div>
+        <div class="role"><span class="role-word" data-tag="photography">photography</span>, <span class="role-word on" data-tag="software-engineering">software engineering</span>, <span class="role-word" data-tag="random">thoughts</span></div>
+      </div>
+    </div>
+
+    <div class="about">
+      <p>Vuoto geometrico è l&#39;incubo ricorrente della mia dormiveglia infantile. È uno spazio senza confini, in cui una linea retta, seguita con gli occhi, accelera e collassa su sé stessa. O un cerchio che si restringe fino a diventare un punto, o si allarga fino a togliere il respiro.</p>
+      <p>In questo angolo del web cerco di mettere insieme temi fotografici, e ogni tanto rigurgito qualche pensiero sul mondo del software o qualsiasi altra cosa mi passi per la testa.</p>
+      <a class="email" href="mailto:msmcntmr@gmail.com">msmcntmr@gmail.com</a>
+    </div>
+
+    <div class="pane-tools">
+      <div class="text-size" data-text-size aria-label="Text size">
+        <button type="button" data-size="16" aria-label="Small">A</button>
+        <button type="button" data-size="18" aria-label="Medium">A</button>
+        <button type="button" data-size="20" aria-label="Large">A</button>
+      </div>
+      <span class="sep" aria-hidden="true"></span>
+      <button type="button" class="panel-swap" data-panel-swap aria-label="Swap panel backgrounds" title="Swap panel backgrounds">
+        <span class="half" aria-hidden="true"></span>
+      </button>
+    </div>
+  </aside>
+
+</div>
+
+<!-- ====================== FULLSCREEN IMAGE MODAL ====================== -->
+<div class="modal" id="modal" hidden>
+  <div class="scrim"></div>
+  <div class="modal-inner">
+    <div class="modal-img" id="modal-img"></div>
+    <div class="modal-meta">
+      <div class="eyebrow">Plate</div>
+      <h2 id="m-title">—</h2>
+      <p class="caption" id="m-caption" hidden></p>
+      <div class="desc" id="m-desc" hidden></div>
+      <dl class="tech" id="m-tech"></dl>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== FIGURE DATA ====================== -->
+<script id="figdata" type="application/json">[]</script>
+<script src="/assets/article.js"></script>
+<script type="module" src="/assets/diagrams.js"></script>
+<script src="/assets/rain.js"></script>
+
+</body>
+</html>

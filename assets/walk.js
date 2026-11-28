@@ -14,7 +14,9 @@
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
   const wide = matchMedia('(min-width: 1025px)');
   // on the home page the backdrop animates only while shown (class "on")
-  const live = () => !canvas.hasAttribute('data-gated') || canvas.classList.contains('on');
+  // paused while the panes swap (assets/shared.js), so the sweep's snapshot stays still
+  const live = () => (!canvas.hasAttribute('data-gated') || canvas.classList.contains('on'))
+    && !document.documentElement.hasAttribute('data-swapping');
   const FPS = 30;
 
   const STEP = 1.5;         // px per simulated step
@@ -126,6 +128,7 @@
   new ResizeObserver(schedule).observe(pane);
   new MutationObserver(() => { readInk(); kick(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class', 'data-theme'] });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
+  document.addEventListener('sf:swap-end', kick);
   calm.addEventListener('change', kick);
   wide.addEventListener('change', schedule);
 })();
